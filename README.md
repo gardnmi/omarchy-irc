@@ -12,6 +12,7 @@ page or browser UI.
 - Searchable, virtualized user roster with bounded visible results
 - Mouse-selectable message text with standard `Ctrl+C` copying
 - Clickable sender names with contextual DM and mute actions
+- Searchable slash-command suggestions with keyboard and mouse selection
 - Unicode emoji display and native Omarchy emoji-picker input
 - Channel member selector populated from IRC `NAMES` replies
 - Direct-message conversations with individual channel members
@@ -71,6 +72,7 @@ raw IRC commands:
 | Command | Action |
 | --- | --- |
 | `/me action` | Send an IRC action to the active channel or DM |
+| `/action action` | Alias for `/me` |
 | `/msg nick message` | Open a DM and optionally send a message |
 | `/query nick` | Open a DM without sending |
 | `/nick nick` | Change the current nickname |
@@ -82,6 +84,9 @@ raw IRC commands:
 | `/help` | Show the supported command list |
 
 Start a message with `//` to send a literal leading slash.
+Typing `/` opens the supported-command list. Continue typing to filter it, use
+Up/Down to move, and press Enter or Tab to insert the selected command. Commands
+can also be selected with the mouse; Escape dismisses the list.
 
 Choose the smiley icon beside the composer to open Omarchy's searchable emoji overlay.
 Selecting an emoji inserts it into the focused composer without sending it;

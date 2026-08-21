@@ -38,6 +38,8 @@ Panel {
   property var mutedUsers: ({})
   property int actionSequence: -1
   property bool messageTextFocused: false
+  property int commandSuggestionIndex: 0
+  property bool commandSuggestionsDismissed: false
   readonly property var kiwiEmoticons: ({
     ":)": "🙂", ":-)": "🙂", "=)": "🙂", ":]": "🙂",
     ":D": "😃", ":-D": "😃", "=D": "😃", "XD": "😆",
@@ -63,6 +65,29 @@ Panel {
       output.push({ value: user, label: user })
     }
     return output
+  }
+  readonly property var slashCommands: [
+    { command: "msg", usage: "/msg nick message", description: "Send a private message" },
+    { command: "me", usage: "/me action", description: "Send an IRC action" },
+    { command: "action", usage: "/action action", description: "Alias for /me" },
+    { command: "query", usage: "/query nick", description: "Open a private conversation" },
+    { command: "nick", usage: "/nick nick", description: "Change your nickname" },
+    { command: "mute", usage: "/mute nick", description: "Mute a user for this session" },
+    { command: "unmute", usage: "/unmute nick", description: "Unmute a user" },
+    { command: "clear", usage: "/clear", description: "Clear the active conversation" },
+    { command: "part", usage: "/part", description: "Leave #omachee" },
+    { command: "quit", usage: "/quit", description: "Disconnect from Libera.Chat" },
+    { command: "join", usage: "/join #omachee", description: "Show fixed-channel join state" },
+    { command: "help", usage: "/help", description: "Show supported commands" }
+  ]
+  readonly property var commandSuggestions: {
+    var text = String(composer.text || "")
+    if (commandSuggestionsDismissed || text.charAt(0) !== "/"
+        || text.indexOf("//") === 0 || /\s/.test(text)) return []
+    var query = text.substring(1).toLowerCase()
+    return slashCommands.filter(function(item) {
+      return item.command.indexOf(query) === 0
+    })
   }
 
   implicitWidth: button.implicitWidth
@@ -278,12 +303,27 @@ Panel {
     return false
   }
 
+  function moveCommandSuggestion(delta) {
+    if (commandSuggestions.length === 0) return
+    commandSuggestionIndex = (commandSuggestionIndex + delta
+      + commandSuggestions.length) % commandSuggestions.length
+    commandSuggestionList.positionViewAtIndex(commandSuggestionIndex, ListView.Contain)
+  }
+
+  function applyCommandSuggestion(index) {
+    if (index < 0 || index >= commandSuggestions.length) return
+    composer.text = "/" + commandSuggestions[index].command + " "
+    composer.cursorPosition = composer.text.length
+    commandSuggestionsDismissed = true
+    composer.forceActiveFocus()
+  }
+
   function handleSlashCommand(input) {
     var parsed = String(input || "").match(/^\/(\S+)(?:\s+([\s\S]*))?$/)
     if (!parsed) return commandError("Invalid slash command. Use /help")
     var command = parsed[1].toLowerCase()
     var args = String(parsed[2] || "").trim()
-    if (command === "me") {
+    if (command === "me" || command === "action") {
       if (args === "") return commandError("Usage: /me action")
       return sendText("action", activeTarget, args)
     } else if (command === "msg") {
@@ -315,7 +355,7 @@ Panel {
       statusMessage = joined ? "Already joined #omachee" : "Choose a nickname and use Join"
       return true
     } else if (command === "help") {
-      appendEvent("notice", "", "Commands: /me, /msg, /query, /nick, /mute, /unmute, /clear, /part, /quit, /join #omachee, /help", activeTarget || "#omachee", false)
+      appendEvent("notice", "", "Commands: /me, /action, /msg, /query, /nick, /mute, /unmute, /clear, /part, /quit, /join #omachee, /help", activeTarget || "#omachee", false)
       return true
     } else {
       return commandError("Unknown command /" + command + ". Use /help")
@@ -493,7 +533,6 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      clip: true
       blocked: nicknameField.activeFocus || composer.activeFocus || userSearchField.activeFocus
         || conversationDropdown.popupOpen || root.messageTextFocused
       onCloseRequested: root.close()
@@ -721,7 +760,8 @@ Panel {
           width: parent.width
           height: Math.max(Style.space(190), parent.height
             - Style.space(root.activeTab === "dms" && root.directTargets.length > 0 ? 215 : 180)
-            - Math.max(0, composerRow.height - Style.space(34)))
+            - Math.max(0, composerRow.height - Style.space(34))
+            - (commandSuggestionMenu.visible ? commandSuggestionMenu.height + Style.space(9) : 0))
           color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.035)
           border.width: Math.max(1, Style.spaceReal(1))
           border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.16)
@@ -854,6 +894,72 @@ Panel {
           }
         }
 
+        Rectangle {
+          id: commandSuggestionMenu
+          visible: root.commandSuggestions.length > 0
+          width: parent.width
+          height: visible ? Math.min(Style.space(180),
+            root.commandSuggestions.length * Style.space(30) + Style.space(4)) : 0
+          color: Color.popups.background
+          border.width: Math.max(1, Style.spaceReal(1))
+          border.color: Color.popups.border
+          radius: Style.cornerRadius
+          clip: true
+
+          ListView {
+            id: commandSuggestionList
+            anchors.fill: parent
+            anchors.margins: Style.space(2)
+            model: root.commandSuggestions
+            currentIndex: root.commandSuggestionIndex
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            QQC.ScrollBar.vertical: QQC.ScrollBar { policy: QQC.ScrollBar.AsNeeded }
+
+            delegate: Rectangle {
+              required property var modelData
+              required property int index
+              width: commandSuggestionList.width
+              height: Style.space(30)
+              color: index === root.commandSuggestionIndex
+                ? Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.22)
+                : "transparent"
+
+              Text {
+                id: commandName
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: Style.space(8)
+                width: Style.space(115)
+                text: modelData.usage
+                textFormat: Text.PlainText
+                color: index === root.commandSuggestionIndex ? Color.accent : root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                font.bold: true
+                elide: Text.ElideRight
+              }
+              Text {
+                anchors.left: commandName.right
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.rightMargin: Style.space(8)
+                text: modelData.description
+                textFormat: Text.PlainText
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                elide: Text.ElideRight
+              }
+              MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.applyCommandSuggestion(index)
+              }
+            }
+          }
+        }
+
         Row {
           id: composerRow
           visible: (root.activeTab === "chat" || root.activeTab === "dms")
@@ -896,8 +1002,26 @@ Panel {
               topPadding: Style.space(6)
               bottomPadding: Style.space(6)
               background: null
+              onTextChanged: {
+                root.commandSuggestionIndex = 0
+                root.commandSuggestionsDismissed = false
+              }
               Keys.onPressed: function(event) {
-                if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
+                if (commandSuggestionMenu.visible && event.key === Qt.Key_Down) {
+                  root.moveCommandSuggestion(1)
+                  event.accepted = true
+                } else if (commandSuggestionMenu.visible && event.key === Qt.Key_Up) {
+                  root.moveCommandSuggestion(-1)
+                  event.accepted = true
+                } else if (commandSuggestionMenu.visible
+                    && (event.key === Qt.Key_Tab || event.key === Qt.Key_Return
+                      || event.key === Qt.Key_Enter)) {
+                  root.applyCommandSuggestion(root.commandSuggestionIndex)
+                  event.accepted = true
+                } else if (commandSuggestionMenu.visible && event.key === Qt.Key_Escape) {
+                  root.commandSuggestionsDismissed = true
+                  event.accepted = true
+                } else if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
                     && !(event.modifiers & (Qt.ShiftModifier | Qt.ControlModifier))) {
                   root.sendMessage()
                   event.accepted = true
