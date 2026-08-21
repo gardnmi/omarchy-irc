@@ -535,6 +535,10 @@ Panel {
 
   onActiveTargetChanged: rebuildVisibleTimeline()
 
+  Component.onDestruction: {
+    if (helper.running) helper.running = false
+  }
+
   ListModel { id: timeline }
   ListModel { id: visibleTimeline }
 
@@ -936,7 +940,6 @@ Panel {
                 visible: root.currentUserOperator
                 anchors.left: parent.left
                 anchors.right: parent.right
-                anchors.horizontalCenter: parent.horizontalCenter
                 anchors.bottom: parent.bottom
                 anchors.leftMargin: Style.space(5)
                 anchors.rightMargin: Style.space(5)
