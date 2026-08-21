@@ -67,17 +67,17 @@ Panel {
     return output
   }
   readonly property var slashCommands: [
-    { command: "msg", usage: "/msg nick message", description: "Send a private message" },
-    { command: "me", usage: "/me action", description: "Send an IRC action" },
-    { command: "action", usage: "/action action", description: "Alias for /me" },
-    { command: "query", usage: "/query nick", description: "Open a private conversation" },
-    { command: "nick", usage: "/nick nick", description: "Change your nickname" },
-    { command: "mute", usage: "/mute nick", description: "Mute a user for this session" },
-    { command: "unmute", usage: "/unmute nick", description: "Unmute a user" },
+    { command: "msg", usage: "/msg", description: "Send a private message" },
+    { command: "me", usage: "/me", description: "Send an IRC action" },
+    { command: "action", usage: "/action", description: "Alias for /me" },
+    { command: "query", usage: "/query", description: "Open a private conversation" },
+    { command: "nick", usage: "/nick", description: "Change your nickname" },
+    { command: "mute", usage: "/mute", description: "Mute a user for this session" },
+    { command: "unmute", usage: "/unmute", description: "Unmute a user" },
     { command: "clear", usage: "/clear", description: "Clear the active conversation" },
     { command: "part", usage: "/part", description: "Leave #omachee" },
     { command: "quit", usage: "/quit", description: "Disconnect from Libera.Chat" },
-    { command: "join", usage: "/join #omachee", description: "Show fixed-channel join state" },
+    { command: "join", usage: "/join", description: "Show fixed-channel join state" },
     { command: "help", usage: "/help", description: "Show supported commands" }
   ]
   readonly property var commandSuggestions: {
@@ -756,12 +756,12 @@ Panel {
         }
 
         Rectangle {
+          id: timelineSurface
           visible: root.activeTab === "chat" || root.activeTab === "dms"
           width: parent.width
           height: Math.max(Style.space(190), parent.height
             - Style.space(root.activeTab === "dms" && root.directTargets.length > 0 ? 215 : 180)
-            - Math.max(0, composerRow.height - Style.space(34))
-            - (commandSuggestionMenu.visible ? commandSuggestionMenu.height + Style.space(9) : 0))
+            - Math.max(0, composerRow.height - Style.space(34)))
           color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.035)
           border.width: Math.max(1, Style.spaceReal(1))
           border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.16)
@@ -896,8 +896,13 @@ Panel {
 
         Rectangle {
           id: commandSuggestionMenu
+          parent: timelineSurface
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.bottom: parent.bottom
+          anchors.margins: Style.space(8)
+          z: 10
           visible: root.commandSuggestions.length > 0
-          width: parent.width
           height: visible ? Math.min(Style.space(180),
             root.commandSuggestions.length * Style.space(30) + Style.space(4)) : 0
           color: Color.popups.background
@@ -966,65 +971,71 @@ Panel {
             && root.activeTarget !== ""
           width: parent.width
           spacing: Style.space(6)
-          QQC.ScrollView {
-            id: composerScroll
+          Rectangle {
+            id: composerFrame
             width: parent.width - emojiButton.width - sendButton.width - parent.spacing * 2
             height: Math.min(Style.space(78), Math.max(Style.space(34),
               composer.contentHeight + composer.topPadding + composer.bottomPadding))
+            color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b,
+              composer.activeFocus ? 0.08 : 0.035)
+            border.width: Math.max(1, Style.spaceReal(1))
+            border.color: composer.activeFocus ? Color.accent
+              : Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.2)
+            radius: Style.cornerRadius
             clip: true
-            QQC.ScrollBar.vertical.policy: QQC.ScrollBar.AsNeeded
-            background: Rectangle {
-              color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b,
-                composer.activeFocus ? 0.08 : 0.035)
-              border.width: Math.max(1, Style.spaceReal(1))
-              border.color: composer.activeFocus ? Color.accent
-                : Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.2)
-              radius: Style.cornerRadius
-            }
 
-            QQC.TextArea {
-              id: composer
-              width: composerScroll.availableWidth
-              height: Math.max(composerScroll.availableHeight,
-                contentHeight + topPadding + bottomPadding)
-              enabled: root.joined
-              placeholderText: root.joined ? "Message " + root.activeTarget
-                : "Connect to send a message"
-              color: root.foreground
-              placeholderTextColor: root.dim
-              selectionColor: Color.accent
-              selectedTextColor: Color.background
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.body
-              wrapMode: TextEdit.Wrap
-              leftPadding: Style.space(8)
-              rightPadding: Style.space(8)
-              topPadding: Style.space(6)
-              bottomPadding: Style.space(6)
+            QQC.ScrollView {
+              id: composerScroll
+              anchors.fill: parent
+              anchors.margins: composerFrame.border.width
+              clip: true
+              QQC.ScrollBar.vertical.policy: QQC.ScrollBar.AsNeeded
               background: null
-              onTextChanged: {
-                root.commandSuggestionIndex = 0
-                root.commandSuggestionsDismissed = false
-              }
-              Keys.onPressed: function(event) {
-                if (commandSuggestionMenu.visible && event.key === Qt.Key_Down) {
-                  root.moveCommandSuggestion(1)
-                  event.accepted = true
-                } else if (commandSuggestionMenu.visible && event.key === Qt.Key_Up) {
-                  root.moveCommandSuggestion(-1)
-                  event.accepted = true
-                } else if (commandSuggestionMenu.visible
-                    && (event.key === Qt.Key_Tab || event.key === Qt.Key_Return
-                      || event.key === Qt.Key_Enter)) {
-                  root.applyCommandSuggestion(root.commandSuggestionIndex)
-                  event.accepted = true
-                } else if (commandSuggestionMenu.visible && event.key === Qt.Key_Escape) {
-                  root.commandSuggestionsDismissed = true
-                  event.accepted = true
-                } else if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
-                    && !(event.modifiers & (Qt.ShiftModifier | Qt.ControlModifier))) {
-                  root.sendMessage()
-                  event.accepted = true
+
+              QQC.TextArea {
+                id: composer
+                width: composerScroll.availableWidth
+                height: Math.max(composerScroll.availableHeight,
+                  contentHeight + topPadding + bottomPadding)
+                enabled: root.joined
+                placeholderText: root.joined ? "Message " + root.activeTarget
+                  : "Connect to send a message"
+                color: root.foreground
+                placeholderTextColor: root.dim
+                selectionColor: Color.accent
+                selectedTextColor: Color.background
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                wrapMode: TextEdit.Wrap
+                leftPadding: Style.space(8)
+                rightPadding: Style.space(8)
+                topPadding: Style.space(6)
+                bottomPadding: Style.space(6)
+                background: null
+                onTextChanged: {
+                  root.commandSuggestionIndex = 0
+                  root.commandSuggestionsDismissed = false
+                }
+                Keys.onPressed: function(event) {
+                  if (commandSuggestionMenu.visible && event.key === Qt.Key_Down) {
+                    root.moveCommandSuggestion(1)
+                    event.accepted = true
+                  } else if (commandSuggestionMenu.visible && event.key === Qt.Key_Up) {
+                    root.moveCommandSuggestion(-1)
+                    event.accepted = true
+                  } else if (commandSuggestionMenu.visible
+                      && (event.key === Qt.Key_Tab || event.key === Qt.Key_Return
+                        || event.key === Qt.Key_Enter)) {
+                    root.applyCommandSuggestion(root.commandSuggestionIndex)
+                    event.accepted = true
+                  } else if (commandSuggestionMenu.visible && event.key === Qt.Key_Escape) {
+                    root.commandSuggestionsDismissed = true
+                    event.accepted = true
+                  } else if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
+                      && !(event.modifiers & (Qt.ShiftModifier | Qt.ControlModifier))) {
+                    root.sendMessage()
+                    event.accepted = true
+                  }
                 }
               }
             }
