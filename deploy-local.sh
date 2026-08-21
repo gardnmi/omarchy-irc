@@ -3,8 +3,7 @@
 set -euo pipefail
 
 plugin_dir="$HOME/.config/omarchy/plugins/io.github.gardnmi.omarchy-irc"
-session_omarchy_path=$(systemctl --user show-environment 2>/dev/null | sed -n 's/^OMARCHY_PATH=//p' | tail -n 1)
-: "${session_omarchy_path:=${OMARCHY_PATH:-/usr/share/omarchy}}"
+session_omarchy_path="${OMARCHY_PATH:-/usr/share/omarchy}"
 shell_dir="$session_omarchy_path/shell"
 
 [[ -f $shell_dir/shell.qml ]] || { echo "Omarchy shell config not found: $shell_dir" >&2; exit 1; }
