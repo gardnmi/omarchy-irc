@@ -260,7 +260,6 @@ Panel {
       nicknameField.forceActiveFocus()
       return
     }
-    nickname = value
     sendCommand({ command: joined ? "nickname" : "connect", nickname: value })
   }
 
