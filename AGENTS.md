@@ -1,7 +1,7 @@
 # Omarchy IRC Development Guide
 
-This repository is a native Omarchy Quattro bar plugin for session-only IRC
-chat in `#omachee` on Libera.Chat.
+This repository is a native Omarchy Quattro bar plugin for IRC chat in
+`#omachee` on Libera.Chat with an in-memory timeline.
 
 The permanent plugin ID is `io.github.gardnmi.omarchy-irc`. Never change it.
 
@@ -12,7 +12,11 @@ The permanent plugin ID is `io.github.gardnmi.omarchy-irc`. Never change it.
 - IPC is newline-delimited JSON over the helper's stdin and stdout.
 - The helper starts on first panel open and remains alive with its panel. Panel
   destruction must terminate it so plugin rescans cannot orphan IRC connections.
-- Never persist messages, nicknames, credentials, or connection state.
+- Persist at most 100 displayed public-channel messages/actions in the private
+  XDG state file. Never persist DMs, presence notices, roster data, muted
+  traffic, or connection state.
+- Persist the NickServ account and password only when explicitly requested,
+  using the system Secret Service.
 - Direct-message conversations and muted nicknames are QML session state only.
 - Keep Chat (`#omachee`), Users, and DMs as separate top-level tabs. Only DMs
   use a conversation dropdown; the fixed channel never does.
@@ -28,6 +32,8 @@ The permanent plugin ID is `io.github.gardnmi.omarchy-irc`. Never change it.
   scrollable surface, and selectable by keyboard or mouse without sending on
   insertion.
 - Retain a bounded global timeline in shell memory; the default is 500 events.
+- Keep public history versioned, atomically replaced, and mode `0600`. `/clear`
+  for `#omachee` must delete both visible and persisted channel history.
 - Muting suppresses subsequent incoming messages locally; it is not an IRC ban
   and must not be presented as preventing network delivery.
 - Render all remote content with `Text.PlainText`; never evaluate it.
@@ -41,8 +47,10 @@ The permanent plugin ID is `io.github.gardnmi.omarchy-irc`. Never change it.
   whitespace-delimited; never mutate protocol text or convert arbitrary prose.
 - Keep the server fixed to `irc.libera.chat:6697` and channel fixed to `#omachee`.
 - NickServ credentials may be used only for SASL over verified TLS. Keep them
-  masked in the UI, session-only, out of logs, and out of files. Never join the
-  channel under an account identity until SASL succeeds.
+  masked in the UI and out of logs and plugin files. Optional persistence must
+  use `secret-tool`, pass secrets through stdin, expose a forget action, and
+  save only after SASL succeeds. Never join under an account identity until
+  SASL succeeds.
 - Do not add telemetry, bots, bridges, or LLM processing.
 - Operator controls are limited to requesting/dropping `+o`, kick, and confirmed
   ban-and-kick. Gate moderation on the server-reported `@` state in both QML and

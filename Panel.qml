@@ -30,6 +30,8 @@ Panel {
   property bool joined: false
   property bool nicknameEditorOpen: false
   property bool nickServLoginOpen: false
+  property bool rememberLogin: true
+  property bool savedLogin: false
   property int sequence: 0
   property string activeTab: "chat"
   property string activeTarget: "#omachee"
@@ -112,7 +114,7 @@ Panel {
       .replace(/\\/g, "|").replace(/\^/g, "~")
   }
 
-  function appendEvent(kind, nick, text, target, own) {
+  function appendEvent(kind, nick, text, target, own, storedStamp, historical) {
     var conversation = String(target || "#omachee")
     var shouldScroll = conversation === activeTarget && messageList.atYEnd
       && !messageTextFocused
@@ -120,9 +122,15 @@ Panel {
     if (conversation !== "#omachee") addDirectTarget(conversation)
     var row = { kind: String(kind), nick: String(nick || ""),
       text: String(text || ""), target: conversation, own: !!own,
-      stamp: Qt.formatTime(new Date(), "HH:mm"), sequence: sequence++ }
+      stamp: String(storedStamp || Qt.formatTime(new Date(), "HH:mm")),
+      sequence: sequence++ }
     timeline.append(row)
     if (conversation === activeTarget) visibleTimeline.append(row)
+    if (!historical && conversation === "#omachee"
+        && (kind === "message" || kind === "action")) {
+      sendCommand({ command: "store_history", kind: kind, nick: row.nick,
+        text: row.text, own: row.own })
+    }
     while (timeline.count > maxTimelineEntries) {
       var removedSequence = timeline.get(0).sequence
       timeline.remove(0)
@@ -133,7 +141,7 @@ Panel {
         }
       }
     }
-    if (!opened && (kind === "message" || kind === "action")) unreadCount++
+    if (!historical && !opened && (kind === "message" || kind === "action")) unreadCount++
     if (shouldScroll) Qt.callLater(function() { messageList.positionViewAtEnd() })
   }
 
@@ -314,7 +322,8 @@ Panel {
       sendCommand({ command: "nickname", nickname: value })
     } else {
       var password = nickServLoginOpen ? passwordField.text : ""
-      sendCommand({ command: "connect", nickname: value, account: value, password: password })
+      sendCommand({ command: "connect", nickname: value, account: value, password: password,
+        remember: nickServLoginOpen && rememberLogin })
       passwordField.text = ""
     }
   }
@@ -355,6 +364,7 @@ Panel {
     for (var i = timeline.count - 1; i >= 0; i--)
       if (timeline.get(i).target === activeTarget) timeline.remove(i)
     rebuildVisibleTimeline()
+    if (activeTarget === "#omachee") sendCommand({ command: "clear_history" })
   }
 
   function commandError(message) {
@@ -447,7 +457,23 @@ Panel {
       return
     }
     if (!event || typeof event.event !== "string") return
-    if (event.event === "status") {
+    if (event.event === "history") {
+      for (var timelineIndex = timeline.count - 1; timelineIndex >= 0; timelineIndex--) {
+        var existing = timeline.get(timelineIndex)
+        if (existing.target === "#omachee"
+            && (existing.kind === "message" || existing.kind === "action"))
+          timeline.remove(timelineIndex)
+      }
+      rebuildVisibleTimeline()
+      var messages = Array.isArray(event.messages) ? event.messages : []
+      for (var historyIndex = 0; historyIndex < messages.length; historyIndex++) {
+        var historical = messages[historyIndex]
+        var timestamp = new Date(String(historical.timestamp || ""))
+        var stamp = isNaN(timestamp.getTime()) ? "" : Qt.formatTime(timestamp, "HH:mm")
+        appendEvent(historical.kind, historical.nick, historical.text, "#omachee",
+          !!historical.own, stamp, true)
+      }
+    } else if (event.event === "status") {
       connectionState = String(event.state || "connecting")
       statusMessage = String(event.message || "Connecting")
     } else if (event.event === "connected") {
@@ -461,6 +487,12 @@ Panel {
       statusMessage = account === "" ? "Joined #omachee on Libera.Chat"
         : "Identified as " + account + "; joined #omachee"
       appendEvent("notice", "", "Connected as " + nickname, "#omachee", false)
+    } else if (event.event === "saved_login") {
+      savedLogin = !!event.saved
+      if (savedLogin && nickname === "") {
+        nickname = String(event.account || "")
+        nicknameField.text = nickname
+      }
     } else if (event.event === "disconnected") {
       joined = false
       account = ""
@@ -662,7 +694,9 @@ Panel {
           Column {
             width: parent.width - headerIcon.width - headerLeaveButton.width
               - (headerNicknameButton.visible ? headerNicknameButton.width : 0)
-              - parent.spacing * (headerNicknameButton.visible ? 3 : 2)
+              - (headerForgetButton.visible ? headerForgetButton.width : 0)
+              - parent.spacing * (2 + (headerNicknameButton.visible ? 1 : 0)
+                + (headerForgetButton.visible ? 1 : 0))
             Text {
               width: parent.width
               text: "#omachee · Libera.Chat"
@@ -699,6 +733,17 @@ Panel {
                 Qt.callLater(function() { nicknameField.forceActiveFocus() })
               }
             }
+          }
+          Button {
+            id: headerForgetButton
+            visible: root.savedLogin
+            anchors.verticalCenter: parent.verticalCenter
+            text: ""
+            iconText: ""
+            bordered: true
+            foreground: root.foreground
+            tooltipText: "Forget saved NickServ login"
+            onClicked: root.sendCommand({ command: "clear_saved_login" })
           }
           Button {
             id: headerLeaveButton
@@ -812,13 +857,24 @@ Panel {
           id: nickServRow
           visible: !root.joined && root.nickServLoginOpen
           width: parent.width
+          spacing: Style.space(6)
           TextField {
             id: passwordField
-            width: parent.width
-            placeholderText: "NickServ password (session only)"
+            width: parent.width - rememberLoginButton.width - parent.spacing
+            placeholderText: "NickServ password"
             password: true
             foreground: root.foreground
             onAccepted: root.connectWithNickname()
+          }
+          Button {
+            id: rememberLoginButton
+            text: "Remember"
+            bordered: true
+            selected: root.rememberLogin
+            foreground: root.foreground
+            tooltipText: root.rememberLogin ? "Save login in the system keyring"
+              : "Use this login for the current session only"
+            onClicked: root.rememberLogin = !root.rememberLogin
           }
         }
 
