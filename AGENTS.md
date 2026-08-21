@@ -10,7 +10,8 @@ The permanent plugin ID is `io.github.gardnmi.omarchy-irc`. Never change it.
 - `Panel.qml` owns UI state, unread state, and the in-memory timeline.
 - `irc_helper.py` owns verified TLS and IRC protocol behavior.
 - IPC is newline-delimited JSON over the helper's stdin and stdout.
-- The helper starts on first panel open and remains alive with Omarchy shell.
+- The helper starts on first panel open and remains alive with its panel. Panel
+  destruction must terminate it so plugin rescans cannot orphan IRC connections.
 - Never persist messages, nicknames, credentials, or connection state.
 - Direct-message conversations and muted nicknames are QML session state only.
 - Keep Chat (`#omachee`), Users, and DMs as separate top-level tabs. Only DMs

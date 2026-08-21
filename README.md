@@ -142,6 +142,9 @@ protocol traffic required to join and remain connected to `#omachee`.
 The helper starts only after the panel is opened for the first time. It remains
 connected while Omarchy shell runs, including while the panel is closed. QML and
 the helper communicate through newline-delimited JSON on local process pipes.
+If Omarchy reloads the plugin during a plugin rescan, the panel explicitly stops
+its helper so an invisible IRC connection cannot outlive the UI; this also ends
+the current session-only login and timeline.
 The plugin does not write chat history, nicknames, credentials, or connection
 state to disk. Direct-message conversations and the muted-user set also remain
 only in QML memory. Restarting Omarchy shell discards all of them. Muting is a
