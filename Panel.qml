@@ -493,6 +493,7 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
+      clip: true
       blocked: nicknameField.activeFocus || composer.activeFocus || userSearchField.activeFocus
         || conversationDropdown.popupOpen || root.messageTextFocused
       onCloseRequested: root.close()
@@ -718,8 +719,9 @@ Panel {
         Rectangle {
           visible: root.activeTab === "chat" || root.activeTab === "dms"
           width: parent.width
-          height: Math.max(Style.space(250), parent.height
-            - Style.space(root.activeTab === "dms" && root.directTargets.length > 0 ? 215 : 180))
+          height: Math.max(Style.space(190), parent.height
+            - Style.space(root.activeTab === "dms" && root.directTargets.length > 0 ? 215 : 180)
+            - Math.max(0, composerRow.height - Style.space(34)))
           color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.035)
           border.width: Math.max(1, Style.spaceReal(1))
           border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.16)
