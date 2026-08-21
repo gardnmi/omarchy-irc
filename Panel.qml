@@ -16,6 +16,8 @@ Panel {
   readonly property color dim: Qt.darker(foreground, 1.55)
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property int barSize: bar ? bar.barSize : Style.bar.sizeHorizontal
+  readonly property int maxTimelineEntries: Math.max(100,
+    Number(setting("maxTimelineEntries", 500)))
   readonly property string helperPath: decodeURIComponent(String(Qt.resolvedUrl("irc_helper.py")))
     .replace(/^file:\/\//, "")
   property string connectionState: "disconnected"
@@ -25,9 +27,13 @@ Panel {
   property bool helperStarted: false
   property bool joined: false
   property int sequence: 0
+  property string activeTab: "chat"
   property string activeTarget: "#omachee"
+  property string lastDirectTarget: ""
   property string selectedUser: ""
+  property string userQuery: ""
   property var users: []
+  property var knownUsers: ({})
   property var directTargets: []
   property var mutedUsers: ({})
   property int actionSequence: -1
@@ -44,24 +50,64 @@ Panel {
     ":*": "😘", ":-*": "😘", ":$": "😳",
     "<3": "❤", "</3": "💔", "D:": "😨", "X)": "😵"
   })
-  readonly property var conversationOptions: [{ value: "#omachee", label: "#omachee" }]
-    .concat(directTargets.map(function(target) { return { value: target, label: "DM · " + target } }))
-  readonly property var userOptions: users.filter(function(user) {
-    return user.toLowerCase() !== nickname.toLowerCase()
-  }).map(function(user) { return { value: user, label: user } })
+  readonly property var conversationOptions: directTargets.map(function(target) {
+    return { value: target, label: target }
+  })
+  readonly property var visibleUsers: {
+    var query = userQuery.trim().toLowerCase()
+    var output = []
+    for (var i = 0; i < users.length && output.length < 250; i++) {
+      var user = users[i]
+      if (nickKey(user) === nickKey(nickname)) continue
+      if (query !== "" && user.toLowerCase().indexOf(query) < 0) continue
+      output.push({ value: user, label: user })
+    }
+    return output
+  }
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
+  function nickKey(value) {
+    return String(value || "").toLowerCase()
+      .replace(/\[/g, "{").replace(/\]/g, "}")
+      .replace(/\\/g, "|").replace(/\^/g, "~")
+  }
+
   function appendEvent(kind, nick, text, target, own) {
     var conversation = String(target || "#omachee")
+    var shouldScroll = conversation === activeTarget && messageList.atYEnd
+      && !messageTextFocused
     if (!own && nick !== "" && isMuted(nick)) return
     if (conversation !== "#omachee") addDirectTarget(conversation)
-    timeline.append({ kind: String(kind), nick: String(nick || ""),
+    var row = { kind: String(kind), nick: String(nick || ""),
       text: String(text || ""), target: conversation, own: !!own,
-      stamp: Qt.formatTime(new Date(), "HH:mm"), sequence: sequence++ })
-    if (timeline.count > 500) timeline.remove(0, timeline.count - 500)
+      stamp: Qt.formatTime(new Date(), "HH:mm"), sequence: sequence++ }
+    timeline.append(row)
+    if (conversation === activeTarget) visibleTimeline.append(row)
+    while (timeline.count > maxTimelineEntries) {
+      var removedSequence = timeline.get(0).sequence
+      timeline.remove(0)
+      for (var i = 0; i < visibleTimeline.count; i++) {
+        if (visibleTimeline.get(i).sequence === removedSequence) {
+          visibleTimeline.remove(i)
+          break
+        }
+      }
+    }
     if (!opened && (kind === "message" || kind === "action")) unreadCount++
+    if (shouldScroll) Qt.callLater(function() { messageList.positionViewAtEnd() })
+  }
+
+  function rebuildVisibleTimeline() {
+    visibleTimeline.clear()
+    for (var i = 0; i < timeline.count; i++) {
+      var row = timeline.get(i)
+      if (row.target === activeTarget) visibleTimeline.append({
+        kind: row.kind, nick: row.nick, text: row.text, target: row.target,
+        own: row.own, stamp: row.stamp, sequence: row.sequence
+      })
+    }
     Qt.callLater(function() { messageList.positionViewAtEnd() })
   }
 
@@ -73,55 +119,97 @@ Panel {
 
   function addDirectTarget(target) {
     var value = String(target || "").trim()
-    if (value === "" || value === "#omachee" || directTargets.indexOf(value) >= 0) return
+    if (value === "" || nickKey(value) === nickKey("#omachee")) return
+    for (var i = 0; i < directTargets.length; i++)
+      if (nickKey(directTargets[i]) === nickKey(value)) return
     directTargets = directTargets.concat([value])
   }
 
+  function canonicalNickname(value) {
+    var key = nickKey(value)
+    for (var i = 0; i < users.length; i++)
+      if (nickKey(users[i]) === key) return users[i]
+    for (var j = 0; j < directTargets.length; j++)
+      if (nickKey(directTargets[j]) === key) return directTargets[j]
+    return String(value || "")
+  }
+
   function openDirectMessage(target) {
-    var value = String(target || selectedUser || "").trim()
-    if (value === "" || value.toLowerCase() === nickname.toLowerCase()) return
+    var value = canonicalNickname(String(target || selectedUser || "").trim())
+    if (!/^[A-Za-z\[\]\\`_^{|}][A-Za-z0-9\[\]\\`_^{|}-]{0,15}$/.test(value)
+        || nickKey(value) === nickKey(nickname)
+        || nickKey(value) === nickKey("#omachee")) {
+      commandError("Choose a valid user nickname for a DM")
+      return false
+    }
     addDirectTarget(value)
     activeTarget = value
+    lastDirectTarget = value
+    activeTab = "dms"
     selectedUser = value
     conversationDropdown.value = value
     Qt.callLater(function() { composer.forceActiveFocus() })
+    return true
   }
 
   function isMuted(user) {
-    return !!mutedUsers[String(user || "").toLowerCase()]
+    return !!mutedUsers[nickKey(user)]
   }
 
   function toggleMute(user) {
     var value = String(user || selectedUser || "").trim()
-    if (value === "" || value.toLowerCase() === nickname.toLowerCase()) return
+    if (value === "" || nickKey(value) === nickKey(nickname)) return
+    setMuted(value, !isMuted(value))
+  }
+
+  function setMuted(user, muted) {
+    var value = String(user || "").trim()
+    if (value === "" || nickKey(value) === nickKey(nickname)) return
     var next = Object.assign({}, mutedUsers)
-    var key = value.toLowerCase()
-    if (next[key]) {
-      delete next[key]
-      statusMessage = "Unmuted " + value
-    } else {
-      next[key] = true
-      statusMessage = "Muted " + value + " for this session"
-    }
+    var key = nickKey(value)
+    if (muted) next[key] = true
+    else delete next[key]
     mutedUsers = next
+    statusMessage = (muted ? "Muted " : "Unmuted ") + value
+      + (muted ? " for this session" : "")
   }
 
   function selectMessageUser(sequence, user) {
     var value = String(user || "")
-    if (value === "" || value.toLowerCase() === nickname.toLowerCase()) return
+    if (value === "" || nickKey(value) === nickKey(nickname)) return
     selectedUser = value
-    directUserDropdown.value = value
     actionSequence = actionSequence === sequence ? -1 : sequence
   }
 
   function applyNames(nextUsers) {
     var merged = users.slice()
+    var nextKnown = Object.assign({}, knownUsers)
     for (var i = 0; i < nextUsers.length; i++) {
       var user = String(nextUsers[i] || "")
-      if (user !== "" && merged.indexOf(user) < 0) merged.push(user)
+      var key = nickKey(user)
+      if (user !== "" && !nextKnown[key]) {
+        nextKnown[key] = true
+        merged.push(user)
+      }
     }
+    knownUsers = nextKnown
     users = merged.sort(function(a, b) { return a.toLowerCase().localeCompare(b.toLowerCase()) })
-    if (selectedUser === "" && userOptions.length > 0) selectedUser = userOptions[0].value
+    if (selectedUser === "" && visibleUsers.length > 0) selectedUser = visibleUsers[0].value
+  }
+
+  function replaceNames(nextUsers) {
+    users = []
+    knownUsers = ({})
+    selectedUser = ""
+    applyNames(nextUsers)
+  }
+
+  function removeUser(user) {
+    var key = nickKey(user)
+    users = users.filter(function(candidate) { return nickKey(candidate) !== key })
+    var nextKnown = Object.assign({}, knownUsers)
+    delete nextKnown[key]
+    knownUsers = nextKnown
   }
 
   function sendCommand(payload) {
@@ -149,8 +237,89 @@ Panel {
   function sendMessage() {
     var text = composer.text
     if (!joined || text.trim() === "") return
-    sendCommand({ command: "send", target: activeTarget, text: text })
-    composer.text = ""
+    var submitted = text.indexOf("//") === 0
+      ? sendText("send", activeTarget, text.substring(1))
+      : (text.charAt(0) === "/" ? handleSlashCommand(text)
+        : sendText("send", activeTarget, text))
+    if (submitted) composer.text = ""
+  }
+
+  function sendText(command, target, text) {
+    var normalized = String(text || "")
+      .replace(/[ \t]*(?:\r\n?|\n)+[ \t]*/g, "\u2028").trim()
+    if (normalized === "") return false
+    sendCommand({ command: command, target: target, text: normalized })
+    return true
+  }
+
+  function selectTab(tab) {
+    activeTab = tab
+    actionSequence = -1
+    if (tab === "chat") activeTarget = "#omachee"
+    else if (tab === "dms")
+      activeTarget = lastDirectTarget !== "" ? lastDirectTarget
+        : (directTargets.length > 0 ? directTargets[0] : "")
+    Qt.callLater(function() {
+      if ((tab === "chat" || tab === "dms") && root.joined && root.activeTarget !== "")
+        composer.forceActiveFocus()
+      else keyCatcher.forceActiveFocus()
+    })
+  }
+
+  function clearActiveConversation() {
+    for (var i = timeline.count - 1; i >= 0; i--)
+      if (timeline.get(i).target === activeTarget) timeline.remove(i)
+    rebuildVisibleTimeline()
+  }
+
+  function commandError(message) {
+    statusMessage = message
+    appendEvent("error", "", message, activeTarget || "#omachee", false)
+    return false
+  }
+
+  function handleSlashCommand(input) {
+    var parsed = String(input || "").match(/^\/(\S+)(?:\s+([\s\S]*))?$/)
+    if (!parsed) return commandError("Invalid slash command. Use /help")
+    var command = parsed[1].toLowerCase()
+    var args = String(parsed[2] || "").trim()
+    if (command === "me") {
+      if (args === "") return commandError("Usage: /me action")
+      return sendText("action", activeTarget, args)
+    } else if (command === "msg") {
+      var direct = args.match(/^(\S+)(?:\s+([\s\S]*))?$/)
+      if (!direct) return commandError("Usage: /msg nickname message")
+      var target = direct[1]
+      var message = String(direct[2] || "").trim()
+      if (!openDirectMessage(target)) return false
+      return message === "" ? true : sendText("send", target, message)
+    } else if (command === "query") {
+      if (args === "") return commandError("Usage: /query nickname")
+      return openDirectMessage(args.split(/\s+/)[0])
+    } else if (command === "nick") {
+      if (args === "") return commandError("Usage: /nick nickname")
+      nicknameField.text = args.split(/\s+/)[0]
+      connectWithNickname()
+      return true
+    } else if (command === "mute" || command === "unmute") {
+      if (args === "") return commandError("Usage: /" + command + " nickname")
+      setMuted(args.split(/\s+/)[0], command === "mute")
+      return true
+    } else if (command === "clear") {
+      clearActiveConversation()
+      return true
+    } else if (command === "part" || command === "quit") {
+      sendCommand({ command: "part" })
+      return true
+    } else if (command === "join" && args.toLowerCase() === "#omachee") {
+      statusMessage = joined ? "Already joined #omachee" : "Choose a nickname and use Join"
+      return true
+    } else if (command === "help") {
+      appendEvent("notice", "", "Commands: /me, /msg, /query, /nick, /mute, /unmute, /clear, /part, /quit, /join #omachee, /help", activeTarget || "#omachee", false)
+      return true
+    } else {
+      return commandError("Unknown command /" + command + ". Use /help")
+    }
   }
 
   function openEmojiPicker() {
@@ -185,31 +354,36 @@ Panel {
       connectionState = "disconnected"
       statusMessage = String(event.message || "Disconnected")
     } else if (event.event === "nickname") {
+      var previousNickname = nickname
       nickname = String(event.nickname || nickname)
       nicknameField.text = nickname
+      if (previousNickname !== "" && nickKey(previousNickname) !== nickKey(nickname)) {
+        removeUser(previousNickname)
+        applyNames([nickname])
+      }
       appendEvent("notice", "", String(event.message || "Nickname changed"), "#omachee", false)
     } else if (event.event === "message" || event.event === "action") {
       var target = String(event.target || "#omachee")
+      if (nickKey(target) !== nickKey("#omachee")) target = canonicalNickname(target)
       appendEvent(event.event, event.nick, event.text, target, !!event.own)
-      if (target !== "#omachee" && opened && !event.own) {
+      if (target !== "#omachee" && activeTab === "dms" && activeTarget === "")
         activeTarget = target
-        conversationDropdown.value = target
-      }
     } else if (event.event === "notice") {
       appendEvent("notice", event.nick, event.text, "#omachee", false)
     } else if (event.event === "names") {
-      applyNames(Array.isArray(event.users) ? event.users : [])
+      replaceNames(Array.isArray(event.users) ? event.users : [])
     } else if (event.event === "join") {
       applyNames([event.nick])
       appendEvent("notice", "", String(event.nick || "Someone") + " joined", "#omachee", false)
     } else if (event.event === "part") {
-      users = users.filter(function(user) { return user.toLowerCase() !== String(event.nick || "").toLowerCase() })
+      removeUser(event.nick)
       appendEvent("notice", "", String(event.nick || "Someone") + " left", "#omachee", false)
     } else if (event.event === "quit") {
-      users = users.filter(function(user) { return user.toLowerCase() !== String(event.nick || "").toLowerCase() })
+      removeUser(event.nick)
       appendEvent("notice", "", String(event.nick || "Someone") + " quit", "#omachee", false)
     } else if (event.event === "nick") {
-      users = users.map(function(user) { return user === event.nick ? String(event.newNick) : user })
+      removeUser(event.nick)
+      applyNames([event.newNick])
       appendEvent("notice", "", String(event.nick || "Someone") + " is now " + String(event.newNick || ""), "#omachee", false)
     } else if (event.event === "error") {
       statusMessage = String(event.message || "IRC error")
@@ -222,11 +396,16 @@ Panel {
     startHelper()
     Qt.callLater(function() {
       if (nickname === "") nicknameField.forceActiveFocus()
-      else composer.forceActiveFocus()
+      else if ((activeTab === "chat" || activeTab === "dms") && activeTarget !== "")
+        composer.forceActiveFocus()
+      else keyCatcher.forceActiveFocus()
     })
   }
 
+  onActiveTargetChanged: rebuildVisibleTimeline()
+
   ListModel { id: timeline }
+  ListModel { id: visibleTimeline }
 
   Process {
     id: helper
@@ -314,7 +493,7 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      blocked: nicknameField.activeFocus || composer.activeFocus || directUserDropdown.popupOpen
+      blocked: nicknameField.activeFocus || composer.activeFocus || userSearchField.activeFocus
         || conversationDropdown.popupOpen || root.messageTextFocused
       onCloseRequested: root.close()
 
@@ -326,13 +505,14 @@ Panel {
           width: parent.width
           spacing: Style.space(8)
           Text {
+            id: headerIcon
             text: ""
             color: root.joined ? Color.accent : root.foreground
             font.family: Style.font.icon
             font.pixelSize: Style.font.display
           }
           Column {
-            width: parent.width - Style.space(50)
+            width: parent.width - headerIcon.width - headerLeaveButton.width - parent.spacing * 2
             Text {
               width: parent.width
               text: "#omachee · Libera.Chat"
@@ -352,50 +532,48 @@ Panel {
               elide: Text.ElideRight
             }
           }
+          Button {
+            id: headerLeaveButton
+            anchors.verticalCenter: parent.verticalCenter
+            text: ""
+            iconText: ""
+            bordered: true
+            enabled: root.joined
+            foreground: root.foreground
+            tooltipText: "Leave #omachee"
+            onClicked: root.sendCommand({ command: "part" })
+          }
         }
 
         Row {
           width: parent.width
           spacing: Style.space(6)
-          Dropdown {
-            id: conversationDropdown
-            width: parent.width * 0.45
-            showLabel: false
-            value: root.activeTarget
-            options: root.conversationOptions
+          Button {
+            width: (parent.width - parent.spacing * 2) / 3
+            text: "Chat"
+            iconText: ""
+            bordered: true
+            selected: root.activeTab === "chat"
             foreground: root.foreground
-            fontFamily: root.fontFamily
-            onChanged: function(value) {
-              root.activeTarget = value
-              Qt.callLater(function() { composer.forceActiveFocus() })
-            }
-          }
-          Dropdown {
-            id: directUserDropdown
-            width: parent.width - conversationDropdown.width - directButton.width
-              - muteButton.width - parent.spacing * 3
-            showLabel: false
-            value: root.selectedUser
-            options: root.userOptions
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            onChanged: function(value) { root.selectedUser = value }
+            onClicked: root.selectTab("chat")
           }
           Button {
-            id: directButton
-            text: "DM"
+            width: (parent.width - parent.spacing * 2) / 3
+            text: "Users"
+            iconText: ""
             bordered: true
-            enabled: root.selectedUser !== ""
+            selected: root.activeTab === "users"
             foreground: root.foreground
-            onClicked: root.openDirectMessage(root.selectedUser)
+            onClicked: root.selectTab("users")
           }
           Button {
-            id: muteButton
-            text: root.isMuted(root.selectedUser) ? "Unmute" : "Mute"
+            width: (parent.width - parent.spacing * 2) / 3
+            text: "DMs" + (root.directTargets.length > 0 ? " " + root.directTargets.length : "")
+            iconText: ""
             bordered: true
-            enabled: root.selectedUser !== ""
+            selected: root.activeTab === "dms"
             foreground: root.foreground
-            onClicked: root.toggleMute(root.selectedUser)
+            onClicked: root.selectTab("dms")
           }
         }
 
@@ -421,9 +599,127 @@ Panel {
           }
         }
 
+        Dropdown {
+          id: conversationDropdown
+          visible: root.activeTab === "dms" && root.directTargets.length > 0
+          width: parent.width
+          showLabel: false
+          value: root.activeTarget
+          options: root.conversationOptions
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          onChanged: function(value) {
+            root.activeTarget = value
+            root.lastDirectTarget = value
+            Qt.callLater(function() { composer.forceActiveFocus() })
+          }
+        }
+
+        Row {
+          visible: root.activeTab === "users"
+          width: parent.width
+          spacing: Style.space(6)
+
+          TextField {
+            id: userSearchField
+            width: parent.width - userCountLabel.width - parent.spacing
+            placeholderText: "Search users"
+            text: root.userQuery
+            foreground: root.foreground
+            onTextChanged: root.userQuery = text
+          }
+          Text {
+            id: userCountLabel
+            anchors.verticalCenter: parent.verticalCenter
+            text: root.visibleUsers.length + " / " + Math.max(0, root.users.length - 1)
+            textFormat: Text.PlainText
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+        }
+
         Rectangle {
+          visible: root.activeTab === "users"
           width: parent.width
           height: Math.max(Style.space(270), parent.height - Style.space(210))
+          color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.035)
+          border.width: Math.max(1, Style.spaceReal(1))
+          border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.16)
+          radius: Style.cornerRadius
+          clip: true
+
+          ListView {
+            id: userList
+            anchors.fill: parent
+            anchors.margins: Style.space(8)
+            model: root.visibleUsers
+            spacing: Style.space(5)
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            QQC.ScrollBar.vertical: QQC.ScrollBar { policy: QQC.ScrollBar.AsNeeded }
+
+            delegate: Rectangle {
+              required property var modelData
+              width: userList.width - Style.space(8)
+              height: Style.space(38)
+              color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.035)
+              radius: Style.cornerRadius
+
+              Text {
+                anchors.left: parent.left
+                anchors.right: userDmButton.left
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: Style.space(8)
+                anchors.rightMargin: Style.space(6)
+                text: modelData.label
+                textFormat: Text.PlainText
+                color: root.isMuted(modelData.value) ? root.dim : root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                elide: Text.ElideRight
+              }
+              Button {
+                id: userDmButton
+                anchors.right: userMuteButton.left
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.rightMargin: Style.space(5)
+                text: "DM"
+                iconText: ""
+                bordered: true
+                foreground: root.foreground
+                onClicked: root.openDirectMessage(modelData.value)
+              }
+              Button {
+                id: userMuteButton
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.rightMargin: Style.space(5)
+                text: root.isMuted(modelData.value) ? "Unmute" : "Mute"
+                bordered: true
+                foreground: root.foreground
+                onClicked: root.toggleMute(modelData.value)
+              }
+            }
+
+            Text {
+              anchors.centerIn: parent
+              visible: root.visibleUsers.length === 0
+              text: root.joined ? (root.userQuery === "" ? "No other users are currently visible"
+                : "No users match this search") : "Join to load users"
+              textFormat: Text.PlainText
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+            }
+          }
+        }
+
+        Rectangle {
+          visible: root.activeTab === "chat" || root.activeTab === "dms"
+          width: parent.width
+          height: Math.max(Style.space(250), parent.height
+            - Style.space(root.activeTab === "dms" && root.directTargets.length > 0 ? 215 : 180))
           color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.035)
           border.width: Math.max(1, Style.spaceReal(1))
           border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.16)
@@ -434,7 +730,7 @@ Panel {
             id: messageList
             anchors.fill: parent
             anchors.margins: Style.space(8)
-            model: timeline
+            model: visibleTimeline
             spacing: Style.space(6)
             clip: true
             boundsBehavior: Flickable.StopAtBounds
@@ -452,10 +748,9 @@ Panel {
               readonly property bool hasSender: (kind === "message" || kind === "action")
                 && nick !== ""
               readonly property bool actionsVisible: sequence === root.actionSequence
-                && hasSender && nick.toLowerCase() !== root.nickname.toLowerCase()
-              visible: target === root.activeTarget
+                && hasSender && root.nickKey(nick) !== root.nickKey(root.nickname)
               width: messageList.width - Style.space(8)
-              height: visible ? messageColumn.implicitHeight : 0
+              height: messageColumn.implicitHeight
 
               Column {
                 id: messageColumn
@@ -470,8 +765,8 @@ Panel {
                   Button {
                     id: senderButton
                     visible: messageDelegate.hasSender
-                    enabled: messageDelegate.nick.toLowerCase() !== root.nickname.toLowerCase()
-                    text: messageDelegate.nick
+                    enabled: root.nickKey(messageDelegate.nick) !== root.nickKey(root.nickname)
+                    text: (messageDelegate.kind === "action" ? "* " : "") + messageDelegate.nick
                     bordered: false
                     active: messageDelegate.actionsVisible
                     foreground: root.foreground
@@ -485,9 +780,7 @@ Panel {
                     id: messageText
                     width: messageDelegate.hasSender
                       ? messageRow.width - senderButton.width - messageRow.spacing : messageRow.width
-                    text: messageDelegate.kind === "action"
-                      ? "* " + root.displayText(messageDelegate.text)
-                      : root.displayText(messageDelegate.text)
+                    text: root.displayText(messageDelegate.text)
                     textFormat: TextEdit.PlainText
                     readOnly: true
                     selectByMouse: true
@@ -547,8 +840,10 @@ Panel {
 
             Text {
               anchors.centerIn: parent
-              visible: timeline.count === 0
-              text: root.joined ? "No messages yet" : "Choose a nickname and join #omachee"
+              visible: visibleTimeline.count === 0
+              text: !root.joined ? "Choose a nickname and join #omachee"
+                : (root.activeTab === "dms" && root.activeTarget === ""
+                  ? "Open a DM from the Users tab" : "No messages yet")
               textFormat: Text.PlainText
               color: root.dim
               font.family: root.fontFamily
@@ -558,19 +853,48 @@ Panel {
         }
 
         Row {
+          id: composerRow
+          visible: (root.activeTab === "chat" || root.activeTab === "dms")
+            && root.activeTarget !== ""
           width: parent.width
           spacing: Style.space(6)
-          TextField {
+          QQC.TextArea {
             id: composer
             width: parent.width - emojiButton.width - sendButton.width - parent.spacing * 2
+            height: Math.min(Style.space(78), Math.max(Style.space(34),
+              contentHeight + topPadding + bottomPadding))
             enabled: root.joined
             placeholderText: root.joined ? "Message " + root.activeTarget : "Connect to send a message"
-            foreground: root.foreground
-            onAccepted: root.sendMessage()
+            color: root.foreground
+            placeholderTextColor: root.dim
+            selectionColor: Color.accent
+            selectedTextColor: Color.background
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+            wrapMode: TextEdit.Wrap
+            leftPadding: Style.space(8)
+            rightPadding: Style.space(8)
+            topPadding: Style.space(6)
+            bottomPadding: Style.space(6)
+            background: Rectangle {
+              color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b,
+                composer.activeFocus ? 0.08 : 0.035)
+              border.width: Math.max(1, Style.spaceReal(1))
+              border.color: composer.activeFocus ? Color.accent
+                : Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.2)
+              radius: Style.cornerRadius
+            }
+            Keys.onPressed: function(event) {
+              if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
+                  && !(event.modifiers & (Qt.ShiftModifier | Qt.ControlModifier))) {
+                root.sendMessage()
+                event.accepted = true
+              }
+            }
           }
           Button {
             id: emojiButton
-            text: "Emoji"
+            text: ""
             iconText: ""
             bordered: true
             enabled: root.joined
@@ -589,28 +913,6 @@ Panel {
           }
         }
 
-        Row {
-          width: parent.width
-          spacing: Style.space(6)
-          Text {
-            width: parent.width - leaveButton.width - parent.spacing
-            anchors.verticalCenter: parent.verticalCenter
-            text: "Session-only chat · plain text · no account credentials"
-            textFormat: Text.PlainText
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            elide: Text.ElideRight
-          }
-          Button {
-            id: leaveButton
-            text: "Leave"
-            bordered: true
-            enabled: root.joined
-            foreground: root.foreground
-            onClicked: root.sendCommand({ command: "part" })
-          }
-        }
       }
     }
   }

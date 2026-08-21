@@ -13,6 +13,15 @@ The permanent plugin ID is `io.github.gardnmi.omarchy-irc`. Never change it.
 - The helper starts on first panel open and remains alive with Omarchy shell.
 - Never persist messages, nicknames, credentials, or connection state.
 - Direct-message conversations and muted nicknames are QML session state only.
+- Keep Chat (`#omachee`), Users, and DMs as separate top-level tabs. Only DMs
+  use a conversation dropdown; the fixed channel never does.
+- The roster may contain thousands of nicknames. Keep delegates virtualized,
+  provide search, and bound the visible result window without discarding the
+  lightweight in-memory roster.
+- Slash commands are an explicit local allowlist. Never forward arbitrary raw
+  IRC commands. Encode composer line breaks as U+2028 so one multiline draft
+  remains one IRC message without introducing prohibited CR/LF framing.
+- Retain a bounded global timeline in shell memory; the default is 500 events.
 - Muting suppresses subsequent incoming messages locally; it is not an IRC ban
   and must not be presented as preventing network delivery.
 - Render all remote content with `Text.PlainText`; never evaluate it.

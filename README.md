@@ -7,14 +7,16 @@ page or browser UI.
 ## Features
 
 - Native bar icon, connection indicator, and unread count
-- Native QML timeline and single-line message composer
+- Native QML timeline and bounded multiline message composer
+- Separate Chat, Users, and DMs tabs
+- Searchable, virtualized user roster with bounded visible results
 - Mouse-selectable message text with standard `Ctrl+C` copying
 - Clickable sender names with contextual DM and mute actions
 - Unicode emoji display and native Omarchy emoji-picker input
 - Channel member selector populated from IRC `NAMES` replies
 - Direct-message conversations with individual channel members
 - Session-only mute and unmute controls for incoming user messages
-- User-selected 1-16 character guest nickname with collision handling and in-panel changes
+- User-selected 1-16 character guest nickname with collision and registered-name fallback
 - Verified TLS connection to `irc.libera.chat:6697`
 - Automatic PING/PONG and bounded exponential reconnect backoff
 - Session-only messages that disappear when Omarchy shell restarts
@@ -45,20 +47,43 @@ If needed, enable it later:
 omarchy plugin enable io.github.gardnmi.omarchy-irc --section right
 ```
 
-Open the chat icon, choose a guest nickname, and select **Join**. Enter sends a
-message from the composer. Select a channel member and choose **DM** to open a
-private conversation, or **Mute** to suppress that user's subsequent incoming
-messages for the current shell session. **Unmute** restores them. The
-conversation selector switches between `#omachee` and opened DMs. **Change**
-updates the nickname; **Leave** parts the channel and closes the network
-connection.
+Open the chat icon, choose a guest nickname, and select **Join**. **Chat** is the
+fixed `#omachee` channel with no channel dropdown. **Users** contains a searchable
+virtualized roster with DM and mute actions. It keeps all known nicknames as
+lightweight strings but renders at most 250 matching rows at once, so channels
+with thousands of users remain responsive. **DMs** contains private
+conversations and uses a selector for the available private conversations.
+
+Enter sends from the composer. `Shift+Enter` or `Ctrl+Enter` inserts a newline.
+Because IRC framing cannot contain CR/LF, the plugin encodes composer breaks as
+Unicode LINE SEPARATOR characters so they remain one IRC message and render on
+separate lines in compatible clients. **Change** updates the nickname. The
+compact leave icon in the header parts the channel and closes the connection.
 
 Drag across any message body to select plain text, then press `Ctrl+C` to copy
 the selection. Click another user's nickname in the timeline to reveal **DM**
 and **Mute/Unmute** actions directly beneath that message. Clicking the name
 again dismisses the actions.
 
-Choose **Emoji** beside the composer to open Omarchy's searchable emoji overlay.
+The composer supports these local slash commands without forwarding arbitrary
+raw IRC commands:
+
+| Command | Action |
+| --- | --- |
+| `/me action` | Send an IRC action to the active channel or DM |
+| `/msg nick message` | Open a DM and optionally send a message |
+| `/query nick` | Open a DM without sending |
+| `/nick nick` | Change the current nickname |
+| `/mute nick` | Suppress subsequent incoming messages from a nickname |
+| `/unmute nick` | Remove a session mute |
+| `/clear` | Clear the active conversation from shell memory |
+| `/part` or `/quit` | Leave `#omachee` and disconnect |
+| `/join #omachee` | Report the fixed channel's current join state |
+| `/help` | Show the supported command list |
+
+Start a message with `//` to send a literal leading slash.
+
+Choose the smiley icon beside the composer to open Omarchy's searchable emoji overlay.
 Selecting an emoji inserts it into the focused composer without sending it;
 continue typing or press Enter to send. The standard `SUPER+CTRL+E` Omarchy
 shortcut opens the same picker. Received Unicode emoji use the system emoji font
@@ -89,10 +114,19 @@ only in QML memory. Restarting Omarchy shell discards all of them. Muting is a
 local presentation action: Libera still delivers the traffic, but the panel
 does not retain or display subsequent messages from that nickname.
 
+The timeline retains the newest 500 total channel messages, DM messages, and
+connection/user notices by default. The optional `maxTimelineEntries` plugin
+setting changes this session-memory cap, with a minimum of 100 entries. The cap
+is global across all conversations rather than 500 entries per DM.
+
 There are no account passwords, SASL credentials, analytics, telemetry, public
 logs, bots, bridges, embedded browsers, or LLM processing. Libera.Chat and other
 channel participants receive normal IRC traffic; consult Libera.Chat's policies
 before use.
+
+If Libera reports that a requested nickname is registered and requires account
+identification, the helper selects a random guest suffix instead of requesting
+or transmitting a NickServ password.
 
 ## Protocol Boundary
 

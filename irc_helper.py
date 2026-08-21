@@ -97,6 +97,10 @@ class IrcClient:
         self.outgoing: asyncio.Queue[str] = asyncio.Queue(maxsize=8)
         self.want_connection = False
         self.joined = False
+        self.pending_names: list[str] = []
+        self.pending_name_keys: set[str] = set()
+        self.pending_name_exclusions: set[str] = set()
+        self.collecting_names = False
 
     def emit(self, event: str, **fields: Any) -> None:
         print(json.dumps({"event": event, **fields}, ensure_ascii=False), flush=True)
@@ -138,9 +142,22 @@ class IrcClient:
                 raise ValueError("Join #omachee before sending")
             if not text.strip():
                 raise ValueError("Message cannot be empty")
+            if "\x01" in text:
+                raise ValueError("Message contains a forbidden control character")
             encode_irc(f"PRIVMSG {target} :{text}")
             await self.queue_line(f"PRIVMSG {target} :{text}")
             self.emit("message", nick=self.nickname, target=target, text=text, own=True)
+        elif command == "action":
+            text = str(payload.get("text") or "")
+            target = validate_message_target(payload.get("target"))
+            if not self.joined:
+                raise ValueError("Join #omachee before sending")
+            if not text.strip():
+                raise ValueError("Action cannot be empty")
+            if "\x01" in text:
+                raise ValueError("Action contains a forbidden control character")
+            await self.queue_line(f"PRIVMSG {target} :\x01ACTION {text}\x01")
+            self.emit("action", nick=self.nickname, target=target, text=text, own=True)
         elif command == "part":
             self.want_connection = False
             if self.writer is not None:
@@ -156,6 +173,11 @@ class IrcClient:
             self.outgoing.put_nowait(line)
         except asyncio.QueueFull as error:
             raise ValueError("Please wait before sending more messages") from error
+
+    async def select_guest_variant(self, message: str) -> None:
+        self.nickname = (self.requested_nickname[:13] + "_" + str(random.randint(10, 99)))[:16]
+        await self.write_immediately(f"NICK {self.nickname}")
+        self.emit("nickname", nickname=self.nickname, message=message)
 
     async def write_immediately(self, line: str) -> None:
         if self.writer is None:
@@ -173,6 +195,10 @@ class IrcClient:
                     HOST, PORT, ssl=context, server_hostname=HOST
                 )
                 self.joined = False
+                self.pending_names = []
+                self.pending_name_keys = set()
+                self.pending_name_exclusions = set()
+                self.collecting_names = False
                 self.emit("status", state="authenticating", message="TLS verified")
                 await self.write_immediately(f"NICK {self.nickname}")
                 await self.write_immediately(
@@ -236,19 +262,18 @@ class IrcClient:
                 )
             await self.queue_line(f"JOIN {CHANNEL}")
         elif command == "433":
-            self.nickname = (self.requested_nickname[:13] + "_" + str(random.randint(10, 99)))[:16]
-            await self.write_immediately(f"NICK {self.nickname}")
-            self.emit(
-                "nickname",
-                nickname=self.nickname,
-                message="Nickname was in use; selected a guest variant",
-            )
+            await self.select_guest_variant("Nickname was in use; selected a guest variant")
         elif command == "JOIN" and params:
             channel = params[-1]
             if source_nick == self.nickname and channel.lower() == CHANNEL:
                 self.joined = True
                 self.emit("connected", channel=CHANNEL, network="Libera.Chat", nickname=self.nickname)
             else:
+                if self.collecting_names:
+                    self.pending_name_exclusions.discard(source_nick.lower())
+                    if source_nick.lower() not in self.pending_name_keys:
+                        self.pending_name_keys.add(source_nick.lower())
+                        self.pending_names.append(source_nick)
                 self.emit("join", nick=source_nick, channel=channel)
         elif command == "PRIVMSG" and len(params) >= 2:
             destination = params[0]
@@ -262,7 +287,12 @@ class IrcClient:
                 self.emit("message", nick=source_nick, target=target, text=text, own=False)
         elif command == "NOTICE" and params:
             text = params[-1]
-            if not text.startswith("\x01"):
+            if (source_nick.lower() == "nickserv"
+                    and "nickname is registered" in text.lower()):
+                await self.select_guest_variant(
+                    "Nickname requires an account; selected a guest variant"
+                )
+            elif not text.startswith("\x01"):
                 self.emit("notice", nick=source_nick, text=text)
         elif command == "NICK" and params:
             new_nick = params[-1]
@@ -270,17 +300,47 @@ class IrcClient:
                 self.nickname = new_nick
                 self.emit("nickname", nickname=new_nick, message=f"You are now {new_nick}")
             else:
+                old_key = source_nick.lower()
+                if self.collecting_names:
+                    self.pending_name_exclusions.add(old_key)
+                    self.pending_name_exclusions.discard(new_nick.lower())
+                    if old_key in self.pending_name_keys:
+                        self.pending_name_keys.remove(old_key)
+                        self.pending_names = [name for name in self.pending_names
+                                              if name.lower() != old_key]
+                    if new_nick.lower() not in self.pending_name_keys:
+                        self.pending_name_keys.add(new_nick.lower())
+                        self.pending_names.append(new_nick)
                 self.emit("nick", nick=source_nick, newNick=new_nick)
         elif command == "353" and params:
-            names = []
+            self.collecting_names = True
             for raw_name in params[-1].split():
                 name = raw_name.lstrip("~&@%+")
-                if name:
-                    names.append(name)
-            self.emit("names", channel=CHANNEL, users=names)
+                key = name.lower()
+                if name and key not in self.pending_name_keys and key not in self.pending_name_exclusions:
+                    self.pending_name_keys.add(key)
+                    self.pending_names.append(name)
+        elif command == "366":
+            self.emit("names", channel=CHANNEL, users=self.pending_names)
+            self.pending_names = []
+            self.pending_name_keys = set()
+            self.pending_name_exclusions = set()
+            self.collecting_names = False
         elif command == "PART" and params:
+            key = source_nick.lower()
+            if self.collecting_names:
+                self.pending_name_exclusions.add(key)
+                if key in self.pending_name_keys:
+                    self.pending_name_keys.remove(key)
+                    self.pending_names = [name for name in self.pending_names if name.lower() != key]
             self.emit("part", nick=source_nick, channel=params[0])
         elif command == "QUIT":
+            key = source_nick.lower()
+            if self.collecting_names:
+                self.pending_name_exclusions.add(key)
+                if key in self.pending_name_keys:
+                    self.pending_name_keys.remove(key)
+                    self.pending_names = [name for name in self.pending_names if name.lower() != key]
             self.emit("quit", nick=source_nick, message=params[-1] if params else "")
         elif command.isdigit() and command[0] in "45" and params:
             self.emit("error", message=params[-1])

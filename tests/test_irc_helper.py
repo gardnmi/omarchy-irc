@@ -14,10 +14,10 @@ from irc_helper import (
 
 class ParserTests(unittest.TestCase):
     def test_parses_prefix_and_unicode_trailing_text(self):
-        message = parse_irc_line(":nick!user@host PRIVMSG #omachee :hello λ\r\n")
+        message = parse_irc_line(":nick!user@host PRIVMSG #omachee :hello\u2028λ\r\n")
         self.assertEqual(message.prefix, "nick!user@host")
         self.assertEqual(message.command, "PRIVMSG")
-        self.assertEqual(message.params, ("#omachee", "hello λ"))
+        self.assertEqual(message.params, ("#omachee", "hello\u2028λ"))
 
     def test_rejects_malformed_line(self):
         with self.assertRaises(ValueError):
@@ -71,6 +71,20 @@ class IpcTests(unittest.TestCase):
 
         asyncio.run(exercise())
 
+    def test_action_command_encodes_ctcp_internally(self):
+        async def exercise():
+            client = IrcClient()
+            client.joined = True
+            client.nickname = "Me"
+            output = []
+            client.emit = lambda event, **fields: output.append({"event": event, **fields})
+            await client.handle_command({"command": "action", "target": "#omachee", "text": "waves"})
+            self.assertEqual(client.outgoing.get_nowait(), "PRIVMSG #omachee :\x01ACTION waves\x01")
+            self.assertEqual(output[0]["event"], "action")
+            self.assertTrue(output[0]["own"])
+
+        asyncio.run(exercise())
+
     def test_incoming_direct_message_uses_sender_as_target(self):
         async def exercise():
             client = IrcClient()
@@ -90,7 +104,11 @@ class IpcTests(unittest.TestCase):
             output = []
             client.emit = lambda event, **fields: output.append({"event": event, **fields})
             await client.handle_irc(parse_irc_line(":server 353 Me = #omachee :@alice +bob Me"))
-            self.assertEqual(output[0]["users"], ["alice", "bob", "Me"])
+            await client.handle_irc(parse_irc_line(":server 353 Me = #omachee :alice carol"))
+            await client.handle_irc(parse_irc_line(":bob!u@h PART #omachee :bye"))
+            await client.handle_irc(parse_irc_line(":alice!u@h NICK Alicia"))
+            await client.handle_irc(parse_irc_line(":server 366 Me #omachee :End of NAMES"))
+            self.assertEqual(output[-1]["users"], ["Me", "carol", "Alicia"])
 
         asyncio.run(exercise())
 
@@ -109,6 +127,28 @@ class IpcTests(unittest.TestCase):
             client.write_immediately = write
             await client.handle_irc(parse_irc_line(":server 433 * OmarchyUser :in use"))
             self.assertRegex(client.nickname, r"^OmarchyUser_\d{2}$")
+            self.assertEqual(writes, [f"NICK {client.nickname}"])
+            self.assertEqual(output[0]["event"], "nickname")
+
+        asyncio.run(exercise())
+
+    def test_registered_nickname_selects_guest_variant(self):
+        async def exercise():
+            client = IrcClient()
+            client.nickname = "timothy"
+            client.requested_nickname = "timothy"
+            output = []
+            writes = []
+            client.emit = lambda event, **fields: output.append({"event": event, **fields})
+
+            async def write(line):
+                writes.append(line)
+
+            client.write_immediately = write
+            await client.handle_irc(parse_irc_line(
+                ":NickServ!service@libera NOTICE timothy :This nickname is registered. Please choose a different nickname"
+            ))
+            self.assertRegex(client.nickname, r"^timothy_\d{2}$")
             self.assertEqual(writes, [f"NICK {client.nickname}"])
             self.assertEqual(output[0]["event"], "nickname")
 
