@@ -67,6 +67,9 @@ Panel {
     }
     return output
   }
+  readonly property int otherUserCount: users.filter(function(user) {
+    return nickKey(user) !== nickKey(nickname)
+  }).length
   readonly property var slashCommands: [
     { command: "msg", usage: "/msg", description: "Send a private message" },
     { command: "me", usage: "/me", description: "Send an IRC action" },
@@ -720,7 +723,7 @@ Panel {
           Text {
             id: userCountLabel
             anchors.verticalCenter: parent.verticalCenter
-            text: root.visibleUsers.length + " / " + Math.max(0, root.users.length - 1)
+            text: root.visibleUsers.length + " shown · " + root.otherUserCount + " total"
             textFormat: Text.PlainText
             color: root.dim
             font.family: root.fontFamily
