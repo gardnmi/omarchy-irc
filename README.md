@@ -1,6 +1,6 @@
 # Omarchy IRC
 
-Join `#omarchy` on Libera.Chat from a native, Omarchy-themed bar panel. Omarchy
+Join `#omachee` on Libera.Chat from a native, Omarchy-themed bar panel. Omarchy
 IRC uses a bundled, standard-library-only Python helper and does not embed a web
 page or browser UI.
 
@@ -51,7 +51,7 @@ open, fetch, preview, or execute links or message content.
 The bundled `irc_helper.py` connects directly to the fixed host
 `irc.libera.chat:6697` with Python's default verified TLS trust store. It sends
 the selected nickname, a generic IRC user description, channel messages, and
-protocol traffic required to join and remain connected to `#omarchy`.
+protocol traffic required to join and remain connected to `#omachee`.
 
 The helper starts only after the panel is opened for the first time. It remains
 connected while Omarchy shell runs, including while the panel is closed. QML and
@@ -77,7 +77,7 @@ Events returned to QML include:
 
 ```json
 {"event":"message","nick":"someone","text":"Welcome!"}
-{"event":"connected","channel":"#omarchy","network":"Libera.Chat"}
+{"event":"connected","channel":"#omachee","network":"Libera.Chat"}
 {"event":"error","message":"Nickname already in use"}
 ```
 

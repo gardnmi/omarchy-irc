@@ -14,7 +14,7 @@ from typing import Any
 
 HOST = "irc.libera.chat"
 PORT = 6697
-CHANNEL = "#omarchy"
+CHANNEL = "#omachee"
 MAX_IRC_BYTES = 510  # Excludes the required CRLF terminator.
 NICK_RE = re.compile(r"^[A-Za-z\[\]\\`_^{|}][A-Za-z0-9\[\]\\`_^{|}-]{0,15}$")
 
@@ -127,7 +127,7 @@ class IrcClient:
         elif command == "send":
             text = str(payload.get("text") or "")
             if not self.joined:
-                raise ValueError("Join #omarchy before sending")
+                raise ValueError("Join #omachee before sending")
             if not text.strip():
                 raise ValueError("Message cannot be empty")
             encode_irc(f"PRIVMSG {CHANNEL} :{text}")
@@ -137,8 +137,8 @@ class IrcClient:
             self.want_connection = False
             if self.writer is not None:
                 await self.write_immediately(f"PART {CHANNEL} :Leaving Omarchy IRC")
-            await self.disconnect("Left #omarchy")
-            self.emit("disconnected", message="Left #omarchy")
+            await self.disconnect("Left #omachee")
+            self.emit("disconnected", message="Left #omachee")
         else:
             raise ValueError(f"Unsupported command: {command}")
 

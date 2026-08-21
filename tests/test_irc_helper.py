@@ -13,10 +13,10 @@ from irc_helper import (
 
 class ParserTests(unittest.TestCase):
     def test_parses_prefix_and_unicode_trailing_text(self):
-        message = parse_irc_line(":nick!user@host PRIVMSG #omarchy :hello λ\r\n")
+        message = parse_irc_line(":nick!user@host PRIVMSG #omachee :hello λ\r\n")
         self.assertEqual(message.prefix, "nick!user@host")
         self.assertEqual(message.command, "PRIVMSG")
-        self.assertEqual(message.params, ("#omarchy", "hello λ"))
+        self.assertEqual(message.params, ("#omachee", "hello λ"))
 
     def test_rejects_malformed_line(self):
         with self.assertRaises(ValueError):
@@ -25,11 +25,11 @@ class ParserTests(unittest.TestCase):
     def test_enforces_encoded_irc_limit(self):
         self.assertEqual(encode_irc("PING :ok"), b"PING :ok\r\n")
         with self.assertRaises(ValueError):
-            encode_irc("PRIVMSG #omarchy :" + "λ" * 300)
+            encode_irc("PRIVMSG #omachee :" + "λ" * 300)
 
     def test_rejects_line_injection(self):
         with self.assertRaises(ValueError):
-            encode_irc("PRIVMSG #omarchy :hello\r\nQUIT")
+            encode_irc("PRIVMSG #omachee :hello\r\nQUIT")
 
 
 class IpcTests(unittest.TestCase):

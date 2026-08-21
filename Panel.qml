@@ -83,7 +83,7 @@ Panel {
       connectionState = "connected"
       nickname = String(event.nickname || nickname)
       nicknameField.text = nickname
-      statusMessage = "Joined #omarchy on Libera.Chat"
+      statusMessage = "Joined #omachee on Libera.Chat"
       appendEvent("notice", "", "Connected as " + nickname)
     } else if (event.event === "disconnected") {
       joined = false
@@ -148,8 +148,8 @@ Panel {
     fixedWidth: root.barSize
     fixedHeight: root.barSize
     active: root.unreadCount > 0
-    tooltipText: root.unreadCount > 0 ? root.unreadCount + " unread in #omarchy"
-      : (root.joined ? "#omarchy - connected" : "Omarchy IRC - " + root.connectionState)
+    tooltipText: root.unreadCount > 0 ? root.unreadCount + " unread in #omachee"
+      : (root.joined ? "#omachee - connected" : "Omarchy IRC - " + root.connectionState)
     onPressed: function(_button) { root.toggle() }
 
     Item {
@@ -228,7 +228,7 @@ Panel {
             width: parent.width - Style.space(50)
             Text {
               width: parent.width
-              text: "#omarchy · Libera.Chat"
+              text: "#omachee · Libera.Chat"
               textFormat: Text.PlainText
               color: root.foreground
               font.family: root.fontFamily
@@ -314,7 +314,7 @@ Panel {
             Text {
               anchors.centerIn: parent
               visible: timeline.count === 0
-              text: root.joined ? "No messages yet" : "Choose a nickname and join #omarchy"
+              text: root.joined ? "No messages yet" : "Choose a nickname and join #omachee"
               textFormat: Text.PlainText
               color: root.dim
               font.family: root.fontFamily
@@ -330,7 +330,7 @@ Panel {
             id: composer
             width: parent.width - sendButton.width - parent.spacing
             enabled: root.joined
-            placeholderText: root.joined ? "Message #omarchy" : "Connect to send a message"
+            placeholderText: root.joined ? "Message #omachee" : "Connect to send a message"
             foreground: root.foreground
             onAccepted: root.sendMessage()
           }

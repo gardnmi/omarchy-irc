@@ -1,7 +1,7 @@
 # Omarchy IRC Development Guide
 
 This repository is a native Omarchy Quattro bar plugin for session-only IRC
-chat in `#omarchy` on Libera.Chat.
+chat in `#omachee` on Libera.Chat.
 
 The permanent plugin ID is `io.github.gardnmi.omarchy-irc`. Never change it.
 
@@ -13,7 +13,7 @@ The permanent plugin ID is `io.github.gardnmi.omarchy-irc`. Never change it.
 - The helper starts on first panel open and remains alive with Omarchy shell.
 - Never persist messages, nicknames, credentials, or connection state.
 - Render all remote content with `Text.PlainText`; never evaluate it.
-- Keep the server fixed to `irc.libera.chat:6697` and channel fixed to `#omarchy`.
+- Keep the server fixed to `irc.libera.chat:6697` and channel fixed to `#omachee`.
 - Do not add passwords, SASL, telemetry, bots, bridges, or LLM processing.
 - Preserve IRC line limits, flood throttling, PING/PONG, reconnect backoff, and
   nickname collision handling.
