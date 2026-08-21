@@ -63,7 +63,10 @@ Open the chat icon, choose a guest nickname, and select **Join**. The default
 form does not ask new users about IRC accounts. Experienced users can select the
 key icon beside **Join** to reveal a masked password field and identify with a
 registered Libera.Chat account such as `gardnmi`; selecting it again returns to
-the simple guest flow. **Chat** is the
+the simple guest flow. Keep **Remember** selected to save a successful login in
+the desktop system keyring and reconnect automatically after shell restarts or
+plugin rescans. The unlocked-key button in the header forgets the saved login
+without disconnecting the current session. **Chat** is the
 fixed `#omachee` channel with no channel dropdown. **Users** contains a searchable
 virtualized roster with DM and mute actions. It keeps all known nicknames as
 lightweight strings but renders at most 250 matching rows at once, so channels
@@ -143,13 +146,13 @@ The helper starts only after the panel is opened for the first time. It remains
 connected while Omarchy shell runs, including while the panel is closed. QML and
 the helper communicate through newline-delimited JSON on local process pipes.
 If Omarchy reloads the plugin during a plugin rescan, the panel explicitly stops
-its helper so an invisible IRC connection cannot outlive the UI; this also ends
-the current session-only login and timeline.
-The plugin does not write chat history, nicknames, credentials, or connection
-state to disk. Direct-message conversations and the muted-user set also remain
-only in QML memory. Restarting Omarchy shell discards all of them. Muting is a
-local presentation action: Libera still delivers the traffic, but the panel
-does not retain or display subsequent messages from that nickname.
+its helper so an invisible IRC connection cannot outlive the UI. DMs, presence
+notices, roster data, the muted-user set, and connection state remain only in
+memory and are discarded by a shell restart or rescan. A remembered login starts
+a new authenticated connection when the replacement panel is next opened.
+Muting is a local presentation action: Libera still delivers the traffic, but
+the panel does not retain, display, or persist subsequent messages from that
+nickname.
 
 The session keeps at most 100 distinct DM conversation targets so unsolicited
 messages from rotating nicknames cannot grow the dropdown without bound.
@@ -157,15 +160,36 @@ messages from rotating nicknames cannot grow the dropdown without bound.
 The timeline retains the newest 500 total channel messages, DM messages, and
 connection/user notices by default. The optional `maxTimelineEntries` plugin
 setting changes this session-memory cap, with a minimum of 100 entries. The cap
-is global across all conversations rather than 500 entries per DM.
+is global across all conversations rather than 500 entries per DM. Separately,
+the helper persists only the newest 100 displayed messages and actions from the
+public `#omachee` channel. It excludes DMs, notices, presence events, roster data,
+and muted traffic.
+
+Public history is stored as versioned JSON at
+`$XDG_STATE_HOME/omarchy-irc/history.json`, or
+`~/.local/state/omarchy-irc/history.json` when `XDG_STATE_HOME` is unset. The
+helper uses a private directory, mode `0600` for the file, and atomic replacement
+so an interrupted write cannot leave a partial history. `/clear` while viewing
+**Chat** deletes both the visible and persisted channel history. Removing the
+plugin does not automatically remove this XDG state file; use `/clear` first or
+delete that path manually if desired.
 
 NickServ passwords are accepted only through the masked login field, sent to the
 helper over its local stdin pipe, and used for SASL PLAIN inside the verified TLS
-connection. They remain in process memory only while needed for reconnects and
-are cleared when leaving or when authentication fails. Authentication must
-succeed before the helper joins `#omachee`; it never silently falls back to a
-guest after an authentication failure. If another IRC client already holds the
-requested registered nickname, account login stops with instructions to
+connection. When **Remember** is selected, the helper saves the account and
+password only after SASL succeeds. It invokes `secret-tool` directly, supplies
+the secret through stdin rather than process arguments, and stores it in the
+desktop Secret Service under this plugin's ID, where the keyring protects it at
+rest. The account and password are never written to plugin files or returned to
+QML during automatic login. If the keyring is unavailable, login continues for
+the current session and the panel reports that it could not save the credential.
+
+The helper keeps a process-memory copy only while needed for reconnects and
+clears it when leaving or when authentication fails. A keyring copy remains
+until the unlocked-key **Forget saved login** action is selected. Authentication
+must succeed before the helper joins `#omachee`; it never silently falls back to
+a guest after an authentication failure. If another IRC client already holds
+the requested registered nickname, account login stops with instructions to
 disconnect that client instead of joining under a suffix. When no password is
 supplied, registered nickname notices still trigger a random guest suffix.
 
@@ -178,7 +202,7 @@ traffic; consult Libera.Chat's policies before use.
 Commands sent to the helper include:
 
 ```json
-{"command":"connect","nickname":"gardnmi","account":"gardnmi","password":"<session-only>"}
+{"command":"connect","nickname":"gardnmi","account":"gardnmi","password":"<masked>","remember":true}
 {"command":"send","target":"#omachee","text":"Hello from Omarchy"}
 {"command":"send","target":"someone","text":"Hello privately"}
 ```

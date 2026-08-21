@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
-"""Small, session-only IRC client with newline-delimited JSON IPC."""
+"""Small IRC client with newline-delimited JSON IPC and optional keyring login."""
 
 from __future__ import annotations
 
 import asyncio
 import base64
+from datetime import datetime, timezone
 import json
+import os
 import random
 import re
 import ssl
 import sys
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 HOST = "irc.libera.chat"
@@ -20,6 +24,12 @@ SASL_TIMEOUT_SECONDS = 20
 MAX_IRC_BYTES = 510  # Excludes the required CRLF terminator.
 NICK_RE = re.compile(r"^[A-Za-z\[\]\\`_^{|}][A-Za-z0-9\[\]\\`_^{|}-]{0,15}$")
 ACCOUNT_RE = re.compile(r"^[A-Za-z0-9\[\]\\`_^{|}-]{1,16}$")
+KEYRING_ATTRIBUTE = "application"
+KEYRING_VALUE = "io.github.gardnmi.omarchy-irc"
+SECRET_TOOL = "/usr/bin/secret-tool"
+HISTORY_LIMIT = 100
+HISTORY_VERSION = 1
+MAX_HISTORY_BYTES = 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -148,6 +158,9 @@ class IrcClient:
         self.send_lock = asyncio.Lock()
         self.last_send_time = 0.0
         self.background_tasks: set[asyncio.Task[None]] = set()
+        self.remember_login = False
+        state_home = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
+        self.history_path = state_home / "omarchy-irc/history.json"
 
     def emit(self, event: str, **fields: Any) -> None:
         print(json.dumps({"event": event, **fields}, ensure_ascii=False), flush=True)
@@ -174,6 +187,7 @@ class IrcClient:
             self.nickname = nickname
             self.sasl_account = account
             self.sasl_password = validate_password(password) if password else ""
+            self.remember_login = bool(password and payload.get("remember"))
             self.want_connection = True
             if self.connection_task is None or self.connection_task.done():
                 self.connection_task = asyncio.create_task(self.connection_loop())
@@ -243,8 +257,153 @@ class IrcClient:
                 await self.write_immediately(f"PART {CHANNEL} :Leaving Omarchy IRC")
             await self.disconnect("Left #omachee")
             self.emit("disconnected", message="Left #omachee")
+        elif command == "clear_saved_login":
+            await self.clear_saved_login()
+        elif command == "store_history":
+            await asyncio.to_thread(self.store_history, payload)
+        elif command == "clear_history":
+            await asyncio.to_thread(self.clear_history)
         else:
             raise ValueError(f"Unsupported command: {command}")
+
+    def load_history(self) -> list[dict[str, Any]]:
+        try:
+            if self.history_path.stat().st_size > MAX_HISTORY_BYTES:
+                return []
+            document = json.loads(self.history_path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, OSError, json.JSONDecodeError):
+            return []
+        if not isinstance(document, dict) or document.get("version") != HISTORY_VERSION:
+            return []
+        messages = document.get("messages")
+        if not isinstance(messages, list):
+            return []
+        valid = [message for message in messages if self.valid_history_event(message)]
+        return valid[-HISTORY_LIMIT:]
+
+    @staticmethod
+    def valid_history_event(event: Any) -> bool:
+        if not (
+            isinstance(event, dict)
+            and event.get("kind") in {"message", "action"}
+            and isinstance(event.get("nick"), str)
+            and len(event["nick"]) <= 64
+            and isinstance(event.get("text"), str)
+            and isinstance(event.get("own"), bool)
+            and isinstance(event.get("timestamp"), str)
+            and len(event["timestamp"]) <= 64
+        ):
+            return False
+        try:
+            event["nick"].encode("utf-8")
+            text_size = len(event["text"].encode("utf-8"))
+            datetime.fromisoformat(event["timestamp"])
+        except (UnicodeEncodeError, ValueError):
+            return False
+        return text_size <= 4096
+
+    def store_history(self, payload: dict[str, Any]) -> None:
+        event = {
+            "kind": payload.get("kind"),
+            "nick": payload.get("nick"),
+            "text": payload.get("text"),
+            "own": payload.get("own"),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        if not self.valid_history_event(event):
+            raise ValueError("Invalid channel history event")
+        messages = self.load_history()
+        messages.append(event)
+        self.write_history(messages[-HISTORY_LIMIT:])
+
+    def write_history(self, messages: list[dict[str, Any]]) -> None:
+        self.history_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(self.history_path.parent, 0o700)
+        document = json.dumps(
+            {"version": HISTORY_VERSION, "messages": messages},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=".history-", suffix=".tmp", dir=self.history_path.parent
+        )
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(document)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, self.history_path)
+        except Exception:
+            temporary.unlink(missing_ok=True)
+            raise
+        os.chmod(self.history_path, 0o600)
+
+    def clear_history(self) -> None:
+        self.history_path.unlink(missing_ok=True)
+        for temporary in self.history_path.parent.glob(".history-*.tmp"):
+            temporary.unlink(missing_ok=True)
+
+    async def keyring_command(self, action: str, secret: bytes | None = None) -> bytes | None:
+        arguments = [SECRET_TOOL, action]
+        if action == "store":
+            arguments.append("--label=Omarchy IRC NickServ login")
+        arguments.extend([KEYRING_ATTRIBUTE, KEYRING_VALUE])
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *arguments,
+                stdin=asyncio.subprocess.PIPE if secret is not None else asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+        except OSError:
+            return None
+        try:
+            stdout, _ = await asyncio.wait_for(process.communicate(secret), timeout=30)
+        except TimeoutError:
+            process.kill()
+            await process.wait()
+            return None
+        return stdout.rstrip(b"\r\n") if process.returncode == 0 else None
+
+    async def load_saved_login(self) -> None:
+        saved = await self.keyring_command("lookup")
+        if not saved:
+            return
+        try:
+            credential = json.loads(saved.decode("utf-8"))
+            account = validate_nickname(credential.get("account"))
+            password = validate_password(credential.get("password"))
+        except (AttributeError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            await self.clear_saved_login()
+            return
+        self.emit("saved_login", saved=True, account=account)
+        await self.handle_command({
+            "command": "connect",
+            "nickname": account,
+            "account": account,
+            "password": password,
+            "remember": True,
+        })
+
+    async def store_saved_login(self) -> None:
+        credential = json.dumps({
+            "account": self.sasl_account,
+            "password": self.sasl_password,
+        }, ensure_ascii=False).encode("utf-8")
+        stored = await self.keyring_command("store", credential)
+        if stored is None:
+            self.emit("error", message="Could not save the NickServ login in the system keyring")
+            return
+        self.emit("saved_login", saved=True, account=self.sasl_account)
+
+    async def clear_saved_login(self) -> None:
+        cleared = await self.keyring_command("clear")
+        if cleared is None:
+            self.emit("error", message="Could not remove the NickServ login from the system keyring")
+            return
+        self.remember_login = False
+        self.emit("saved_login", saved=False, account="")
 
     def require_operator(self) -> None:
         if not self.joined or nick_key(self.nickname) not in self.operators:
@@ -428,6 +587,8 @@ class IrcClient:
             self.sasl_deadline = None
             await self.write_immediately("CAP END")
             self.emit("status", state="authenticating", message=f"Identified as {self.sasl_account}")
+            if self.remember_login:
+                await self.store_saved_login()
         elif command in {"902", "904", "905", "906", "907", "908"} and self.sasl_account:
             await self.fail_authentication(params[-1] if params else "NickServ authentication failed")
         elif command == "001":
@@ -680,7 +841,11 @@ class IrcClient:
 
 
 async def main() -> None:
-    await IrcClient().command_loop()
+    client = IrcClient()
+    history = await asyncio.to_thread(client.load_history)
+    client.emit("history", messages=history)
+    await client.load_saved_login()
+    await client.command_loop()
 
 
 if __name__ == "__main__":

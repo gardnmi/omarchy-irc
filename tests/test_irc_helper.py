@@ -1,9 +1,14 @@
 import asyncio
 import base64
 import json
+import os
+from pathlib import Path
+import tempfile
 import unittest
+from unittest.mock import AsyncMock, patch
 
 from irc_helper import (
+    HISTORY_LIMIT,
     IrcClient,
     decode_client_command,
     encode_irc,
@@ -33,6 +38,60 @@ class ParserTests(unittest.TestCase):
     def test_rejects_line_injection(self):
         with self.assertRaises(ValueError):
             encode_irc("PRIVMSG #omachee :hello\r\nQUIT")
+
+
+class HistoryTests(unittest.TestCase):
+    def test_history_is_bounded_atomic_and_private(self):
+        with tempfile.TemporaryDirectory() as directory:
+            client = IrcClient()
+            client.history_path = Path(directory) / "omarchy-irc/history.json"
+
+            for index in range(HISTORY_LIMIT + 5):
+                client.store_history({
+                    "kind": "message",
+                    "nick": "gardnmi",
+                    "text": f"message {index}",
+                    "own": True,
+                })
+
+            messages = client.load_history()
+            self.assertEqual(len(messages), HISTORY_LIMIT)
+            self.assertEqual(messages[0]["text"], "message 5")
+            self.assertEqual(messages[-1]["text"], f"message {HISTORY_LIMIT + 4}")
+            self.assertEqual(os.stat(client.history_path).st_mode & 0o777, 0o600)
+            self.assertEqual(list(client.history_path.parent.glob(".history-*.tmp")), [])
+
+    def test_history_rejects_invalid_events_and_corrupt_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            client = IrcClient()
+            client.history_path = Path(directory) / "history.json"
+
+            with self.assertRaisesRegex(ValueError, "Invalid channel history"):
+                client.store_history({
+                    "kind": "notice",
+                    "nick": "server",
+                    "text": "not persisted",
+                    "own": False,
+                })
+
+            client.history_path.write_text("not json", encoding="utf-8")
+            self.assertEqual(client.load_history(), [])
+
+    def test_clear_history_removes_persisted_messages(self):
+        with tempfile.TemporaryDirectory() as directory:
+            client = IrcClient()
+            client.history_path = Path(directory) / "history.json"
+            client.store_history({
+                "kind": "action",
+                "nick": "someone",
+                "text": "waves",
+                "own": False,
+            })
+
+            client.clear_history()
+
+            self.assertFalse(client.history_path.exists())
+            self.assertEqual(client.load_history(), [])
 
 
 class IpcTests(unittest.TestCase):
@@ -70,6 +129,93 @@ class IpcTests(unittest.TestCase):
             self.assertEqual(client.outgoing.get_nowait(), "PRIVMSG someone :hello")
             self.assertEqual(output[0]["target"], "someone")
             self.assertTrue(output[0]["own"])
+
+        asyncio.run(exercise())
+
+    def test_load_saved_login_connects_without_exposing_password(self):
+        async def exercise():
+            client = IrcClient()
+            client.keyring_command = AsyncMock(return_value=json.dumps({
+                "account": "gardnmi",
+                "password": "secret",
+            }).encode())
+            client.handle_command = AsyncMock()
+            output = []
+            client.emit = lambda event, **fields: output.append({"event": event, **fields})
+
+            await client.load_saved_login()
+
+            client.handle_command.assert_awaited_once_with({
+                "command": "connect",
+                "nickname": "gardnmi",
+                "account": "gardnmi",
+                "password": "secret",
+                "remember": True,
+            })
+            self.assertEqual(output, [{
+                "event": "saved_login",
+                "saved": True,
+                "account": "gardnmi",
+            }])
+            self.assertNotIn("password", output[0])
+
+        asyncio.run(exercise())
+
+    def test_store_saved_login_passes_json_through_stdin(self):
+        async def exercise():
+            client = IrcClient()
+            client.sasl_account = "gardnmi"
+            client.sasl_password = "secret"
+            client.keyring_command = AsyncMock(return_value=b"")
+            output = []
+            client.emit = lambda event, **fields: output.append({"event": event, **fields})
+
+            await client.store_saved_login()
+
+            action, secret = client.keyring_command.await_args.args
+            self.assertEqual(action, "store")
+            self.assertEqual(json.loads(secret), {
+                "account": "gardnmi",
+                "password": "secret",
+            })
+            self.assertEqual(output[-1]["event"], "saved_login")
+
+        asyncio.run(exercise())
+
+    def test_keyring_store_keeps_secret_out_of_process_arguments(self):
+        async def exercise():
+            client = IrcClient()
+            process = AsyncMock()
+            process.communicate.return_value = (b"", b"")
+            process.returncode = 0
+            create_process = AsyncMock(return_value=process)
+
+            with patch("irc_helper.asyncio.create_subprocess_exec", create_process):
+                await client.keyring_command("store", b"sensitive credential")
+
+            arguments = create_process.await_args.args
+            self.assertNotIn("sensitive credential", " ".join(arguments))
+            process.communicate.assert_awaited_once_with(b"sensitive credential")
+
+        asyncio.run(exercise())
+
+    def test_clear_saved_login_updates_panel_state(self):
+        async def exercise():
+            client = IrcClient()
+            client.remember_login = True
+            client.keyring_command = AsyncMock(return_value=b"")
+            output = []
+            client.emit = lambda event, **fields: output.append({"event": event, **fields})
+
+            await client.clear_saved_login()
+
+            client.keyring_command.assert_awaited_once_with("clear")
+            self.assertFalse(client.remember_login)
+            self.assertEqual(output, [{
+                "event": "saved_login",
+                "saved": False,
+                "account": "",
+            }])
 
         asyncio.run(exercise())
 
@@ -336,6 +482,25 @@ class IpcTests(unittest.TestCase):
             self.assertEqual(client.outgoing.get_nowait(), "JOIN #omachee")
             self.assertTrue(client.authenticated)
             self.assertNotIn("secret", json.dumps(output))
+
+        asyncio.run(exercise())
+
+    def test_remembered_login_is_saved_only_after_sasl_success(self):
+        async def exercise():
+            client = IrcClient()
+            client.sasl_account = "gardnmi"
+            client.sasl_password = "secret"
+            client.remember_login = True
+            client.write_immediately = AsyncMock()
+            client.store_saved_login = AsyncMock()
+            client.emit = lambda _event, **_fields: None
+
+            self.assertEqual(client.store_saved_login.await_count, 0)
+            await client.handle_irc(parse_irc_line(
+                ":server 903 gardnmi :SASL authentication successful"
+            ))
+
+            client.store_saved_login.assert_awaited_once_with()
 
         asyncio.run(exercise())
 
