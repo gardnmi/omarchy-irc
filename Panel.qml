@@ -71,6 +71,7 @@ Panel {
     { command: "msg", usage: "/msg", description: "Send a private message" },
     { command: "me", usage: "/me", description: "Send an IRC action" },
     { command: "action", usage: "/action", description: "Alias for /me" },
+    { command: "dice", usage: "/dice", description: "Roll a die; optionally set sides" },
     { command: "query", usage: "/query", description: "Open a private conversation" },
     { command: "nick", usage: "/nick", description: "Change your nickname" },
     { command: "mute", usage: "/mute", description: "Mute a user for this session" },
@@ -327,6 +328,14 @@ Panel {
     if (command === "me" || command === "action") {
       if (args === "") return commandError("Usage: /me action")
       return sendText("action", activeTarget, args)
+    } else if (command === "dice") {
+      var digits = args.replace(/\D/g, "")
+      var sides = parseInt(digits === "" ? "6" : digits, 10)
+      if (!Number.isFinite(sides) || sides <= 0) sides = 6
+      if (sides > 1000000) return commandError("Dice may have at most 1,000,000 sides")
+      var result = Math.floor(Math.random() * sides) + 1
+      return sendText("action", activeTarget,
+        "rolls a " + sides + "-sided die and gets " + result)
     } else if (command === "msg") {
       var direct = args.match(/^(\S+)(?:\s+([\s\S]*))?$/)
       if (!direct) return commandError("Usage: /msg nickname message")
@@ -356,7 +365,7 @@ Panel {
       statusMessage = joined ? "Already joined #omachee" : "Choose a nickname and use Join"
       return true
     } else if (command === "help") {
-      appendEvent("notice", "", "Commands: /me, /action, /msg, /query, /nick, /mute, /unmute, /clear, /part, /quit, /join #omachee, /help", activeTarget || "#omachee", false)
+      appendEvent("notice", "", "Commands: /me, /action, /dice, /msg, /query, /nick, /mute, /unmute, /clear, /part, /quit, /join #omachee, /help", activeTarget || "#omachee", false)
       return true
     } else {
       return commandError("Unknown command /" + command + ". Use /help")

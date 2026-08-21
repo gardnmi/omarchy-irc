@@ -78,6 +78,7 @@ raw IRC commands:
 | --- | --- |
 | `/me action` | Send an IRC action to the active channel or DM |
 | `/action action` | Alias for `/me` |
+| `/dice [sides]` | Roll a die, defaulting to six sides, and send the result as an action |
 | `/msg nick message` | Open a DM and optionally send a message |
 | `/query nick` | Open a DM without sending |
 | `/nick nick` | Change the current nickname |
