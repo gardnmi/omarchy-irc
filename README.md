@@ -55,6 +55,11 @@ lightweight strings but renders at most 250 matching rows at once, so channels
 with thousands of users remain responsive. **DMs** contains private
 conversations and uses a selector for the available private conversations.
 
+The guest nickname form is shown only until the channel is joined. Afterward,
+the active nickname appears as a clickable header control; select it to reveal a
+compact Apply/Cancel nickname editor. `/nick newname` remains available from the
+composer.
+
 Enter sends from the composer. `Shift+Enter` or `Ctrl+Enter` inserts a newline.
 Because IRC framing cannot contain CR/LF, the plugin encodes composer breaks as
 Unicode LINE SEPARATOR characters so they remain one IRC message and render on

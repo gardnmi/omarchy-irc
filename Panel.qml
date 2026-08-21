@@ -26,6 +26,7 @@ Panel {
   property int unreadCount: 0
   property bool helperStarted: false
   property bool joined: false
+  property bool nicknameEditorOpen: false
   property int sequence: 0
   property string activeTab: "chat"
   property string activeTarget: "#omachee"
@@ -384,6 +385,7 @@ Panel {
       statusMessage = String(event.message || "Connecting")
     } else if (event.event === "connected") {
       joined = true
+      nicknameEditorOpen = false
       connectionState = "connected"
       nickname = String(event.nickname || nickname)
       nicknameField.text = nickname
@@ -391,12 +393,14 @@ Panel {
       appendEvent("notice", "", "Connected as " + nickname, "#omachee", false)
     } else if (event.event === "disconnected") {
       joined = false
+      nicknameEditorOpen = false
       connectionState = "disconnected"
       statusMessage = String(event.message || "Disconnected")
     } else if (event.event === "nickname") {
       var previousNickname = nickname
       nickname = String(event.nickname || nickname)
       nicknameField.text = nickname
+      nicknameEditorOpen = false
       if (previousNickname !== "" && nickKey(previousNickname) !== nickKey(nickname)) {
         removeUser(previousNickname)
         applyNames([nickname])
@@ -552,7 +556,9 @@ Panel {
             font.pixelSize: Style.font.display
           }
           Column {
-            width: parent.width - headerIcon.width - headerLeaveButton.width - parent.spacing * 2
+            width: parent.width - headerIcon.width - headerLeaveButton.width
+              - (headerNicknameButton.visible ? headerNicknameButton.width : 0)
+              - parent.spacing * (headerNicknameButton.visible ? 3 : 2)
             Text {
               width: parent.width
               text: "#omachee · Libera.Chat"
@@ -570,6 +576,24 @@ Panel {
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
               elide: Text.ElideRight
+            }
+          }
+          Button {
+            id: headerNicknameButton
+            visible: root.joined
+            anchors.verticalCenter: parent.verticalCenter
+            text: root.nickname
+            iconText: ""
+            bordered: true
+            selected: root.nicknameEditorOpen
+            foreground: root.foreground
+            tooltipText: "Nickname options"
+            onClicked: {
+              root.nicknameEditorOpen = !root.nicknameEditorOpen
+              if (root.nicknameEditorOpen) {
+                nicknameField.text = root.nickname
+                Qt.callLater(function() { nicknameField.forceActiveFocus() })
+              }
             }
           }
           Button {
@@ -618,11 +642,15 @@ Panel {
         }
 
         Row {
+          id: nicknameRow
+          visible: !root.joined || root.nicknameEditorOpen
           width: parent.width
           spacing: Style.space(6)
           TextField {
             id: nicknameField
-            width: parent.width - applyNickButton.width - parent.spacing
+            width: parent.width - applyNickButton.width
+              - (cancelNickButton.visible ? cancelNickButton.width + parent.spacing : 0)
+              - parent.spacing
             text: root.nickname
             placeholderText: "Guest nickname"
             maximumLength: 16
@@ -631,11 +659,23 @@ Panel {
           }
           Button {
             id: applyNickButton
-            text: root.joined ? "Change" : "Join"
+            text: root.joined ? "Apply" : "Join"
             bordered: true
             active: !root.joined
             foreground: root.foreground
             onClicked: root.connectWithNickname()
+          }
+          Button {
+            id: cancelNickButton
+            visible: root.joined
+            text: "Cancel"
+            bordered: true
+            foreground: root.foreground
+            onClicked: {
+              root.nicknameEditorOpen = false
+              nicknameField.text = root.nickname
+              keyCatcher.forceActiveFocus()
+            }
           }
         }
 
@@ -682,7 +722,8 @@ Panel {
         Rectangle {
           visible: root.activeTab === "users"
           width: parent.width
-          height: Math.max(Style.space(270), parent.height - Style.space(210))
+          height: Math.max(Style.space(270), parent.height - Style.space(166)
+            - (nicknameRow.visible ? nicknameRow.height + Style.space(9) : 0))
           color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.035)
           border.width: Math.max(1, Style.spaceReal(1))
           border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.16)
@@ -761,7 +802,8 @@ Panel {
           x: Math.max(1, Style.spaceReal(1))
           width: parent.width - x * 2
           height: Math.max(Style.space(190), parent.height
-            - Style.space(root.activeTab === "dms" && root.directTargets.length > 0 ? 215 : 180)
+            - Style.space(root.activeTab === "dms" && root.directTargets.length > 0 ? 171 : 136)
+            - (nicknameRow.visible ? nicknameRow.height + Style.space(9) : 0)
             - Math.max(0, composerRow.height - Style.space(34)))
           color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.035)
           border.width: Math.max(1, Style.spaceReal(1))

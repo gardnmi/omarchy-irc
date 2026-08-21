@@ -15,6 +15,8 @@ The permanent plugin ID is `io.github.gardnmi.omarchy-irc`. Never change it.
 - Direct-message conversations and muted nicknames are QML session state only.
 - Keep Chat (`#omachee`), Users, and DMs as separate top-level tabs. Only DMs
   use a conversation dropdown; the fixed channel never does.
+- Show the nickname form for initial connection only. Once joined, expose the
+  current nickname as a header action that opens the editor on demand.
 - The roster may contain thousands of nicknames. Keep delegates virtualized,
   provide search, and bound the visible result window without discarding the
   lightweight in-memory roster.
