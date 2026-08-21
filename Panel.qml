@@ -758,7 +758,8 @@ Panel {
         Rectangle {
           id: timelineSurface
           visible: root.activeTab === "chat" || root.activeTab === "dms"
-          width: parent.width
+          x: Math.max(1, Style.spaceReal(1))
+          width: parent.width - x * 2
           height: Math.max(Style.space(190), parent.height
             - Style.space(root.activeTab === "dms" && root.directTargets.length > 0 ? 215 : 180)
             - Math.max(0, composerRow.height - Style.space(34)))
@@ -969,7 +970,8 @@ Panel {
           id: composerRow
           visible: (root.activeTab === "chat" || root.activeTab === "dms")
             && root.activeTarget !== ""
-          width: parent.width
+          x: Math.max(1, Style.spaceReal(1))
+          width: parent.width - x * 2
           spacing: Style.space(6)
           Rectangle {
             id: composerFrame
