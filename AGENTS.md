@@ -18,6 +18,9 @@ The permanent plugin ID is `io.github.gardnmi.omarchy-irc`. Never change it.
 - Render all remote content with `Text.PlainText`; never evaluate it.
 - Preserve Unicode emoji end to end and use Omarchy's existing `omarchy.emojis`
   overlay for input rather than bundling another picker or emoji dataset.
+- Kiwi IRC sends ASCII emoticon tokens and substitutes emoji only while
+  rendering. Keep compatibility substitutions bounded, display-only, and
+  whitespace-delimited; never mutate protocol text or convert arbitrary prose.
 - Keep the server fixed to `irc.libera.chat:6697` and channel fixed to `#omachee`.
 - Do not add passwords, SASL, telemetry, bots, bridges, or LLM processing.
 - Do not expose channel operator actions such as access changes, kick, or ban

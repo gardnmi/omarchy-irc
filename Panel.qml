@@ -30,6 +30,18 @@ Panel {
   property var users: []
   property var directTargets: []
   property var mutedUsers: ({})
+  readonly property var kiwiEmoticons: ({
+    ":)": "🙂", ":-)": "🙂", "=)": "🙂", ":]": "🙂",
+    ":D": "😃", ":-D": "😃", "=D": "😃", "XD": "😆",
+    ";)": "😉", ";-)": "😉", ";D": "😉",
+    ":(": "😞", ":-(": "😞", "=(": "😞", ":'(": "😢",
+    ":P": "😛", ":p": "😛", ":-P": "😛", ":b": "😛",
+    "8)": "😎", "8-)": "😎", "B)": "😎", "B-)": "😎",
+    ":O": "😮", ":-O": "😮", "O_O": "😮",
+    ":/": "😕", ":-/": "😕", ":\\": "😕",
+    ":*": "😘", ":-*": "😘", ":$": "😳",
+    "<3": "❤", "</3": "💔", "D:": "😨", "X)": "😵"
+  })
   readonly property var conversationOptions: [{ value: "#omachee", label: "#omachee" }]
     .concat(directTargets.map(function(target) { return { value: target, label: "DM · " + target } }))
   readonly property var userOptions: users.filter(function(user) {
@@ -49,6 +61,12 @@ Panel {
     if (timeline.count > 500) timeline.remove(0, timeline.count - 500)
     if (!opened && (kind === "message" || kind === "action")) unreadCount++
     Qt.callLater(function() { messageList.positionViewAtEnd() })
+  }
+
+  function displayText(text) {
+    return String(text || "").split(/(\s+)/).map(function(token) {
+      return kiwiEmoticons[token] || token
+    }).join("")
   }
 
   function addDirectTarget(target) {
@@ -427,8 +445,9 @@ Panel {
                 id: messageText
                 width: parent.width
                 text: parent.kind === "message"
-                  ? parent.nick + "  " + parent.text
-                  : (parent.kind === "action" ? "* " + parent.nick + " " + parent.text : parent.text)
+                  ? parent.nick + "  " + root.displayText(parent.text)
+                  : (parent.kind === "action" ? "* " + parent.nick + " "
+                    + root.displayText(parent.text) : root.displayText(parent.text))
                 textFormat: Text.PlainText
                 color: parent.kind === "error" ? root.urgent
                   : (parent.kind === "notice" ? root.dim : root.foreground)

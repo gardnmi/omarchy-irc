@@ -57,6 +57,12 @@ continue typing or press Enter to send. The standard `SUPER+CTRL+E` Omarchy
 shortcut opens the same picker. Received Unicode emoji use the system emoji font
 fallback, normally `Noto Color Emoji` on Omarchy.
 
+Kiwi IRC's optional emoticon renderer sends ASCII tokens over IRC and replaces
+them with emoji only inside Kiwi. For compatibility, the panel applies the same
+display-only conversion to common whitespace-delimited tokens, including
+`8)` to `😎`, `:)` to `🙂`, and `<3` to `❤`. The raw IRC text remains unchanged
+in the session timeline and is never rewritten before protocol handling.
+
 URLs remain plain text in the initial release. The panel does not automatically
 open, fetch, preview, or execute links or message content.
 

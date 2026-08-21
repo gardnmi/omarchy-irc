@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.gardnmi.omarchy-irc",
   "name": "Omarchy IRC",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "author": "Mike Gardner",
   "license": "MIT",
   "description": "Join the Omarchy community on Libera.Chat from a native bar panel.",
