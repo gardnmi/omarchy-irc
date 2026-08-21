@@ -1042,7 +1042,7 @@ Panel {
                 height: Math.max(composerScroll.availableHeight,
                   contentHeight + topPadding + bottomPadding)
                 enabled: root.joined
-                placeholderText: root.joined ? "Message " + root.activeTarget
+                placeholderText: root.joined ? "Message " + root.activeTarget + " · type / for commands"
                   : "Connect to send a message"
                 color: root.foreground
                 placeholderTextColor: root.dim
@@ -1086,7 +1086,7 @@ Panel {
           }
           Button {
             id: emojiButton
-            anchors.verticalCenter: parent.verticalCenter
+            height: composerFrame.height
             text: ""
             iconText: ""
             bordered: true
@@ -1097,7 +1097,7 @@ Panel {
           }
           Button {
             id: sendButton
-            anchors.verticalCenter: parent.verticalCenter
+            height: composerFrame.height
             text: "Send"
             bordered: true
             active: root.joined
