@@ -1086,6 +1086,7 @@ Panel {
           }
           Button {
             id: emojiButton
+            anchors.verticalCenter: parent.verticalCenter
             text: ""
             iconText: ""
             bordered: true
@@ -1096,6 +1097,7 @@ Panel {
           }
           Button {
             id: sendButton
+            anchors.verticalCenter: parent.verticalCenter
             text: "Send"
             bordered: true
             active: root.joined
