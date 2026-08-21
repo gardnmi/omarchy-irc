@@ -125,6 +125,14 @@ Panel {
     composer.text = ""
   }
 
+  function openEmojiPicker() {
+    if (!joined) return
+    composer.forceActiveFocus()
+    Qt.callLater(function() {
+      Quickshell.execDetached(["omarchy-shell", "shell", "toggle", "omarchy.emojis"])
+    })
+  }
+
   function handleHelperLine(line) {
     var event
     try {
@@ -447,11 +455,21 @@ Panel {
           spacing: Style.space(6)
           TextField {
             id: composer
-            width: parent.width - sendButton.width - parent.spacing
+            width: parent.width - emojiButton.width - sendButton.width - parent.spacing * 2
             enabled: root.joined
             placeholderText: root.joined ? "Message " + root.activeTarget : "Connect to send a message"
             foreground: root.foreground
             onAccepted: root.sendMessage()
+          }
+          Button {
+            id: emojiButton
+            text: "Emoji"
+            iconText: ""
+            bordered: true
+            enabled: root.joined
+            foreground: root.foreground
+            tooltipText: "Open Omarchy emoji picker"
+            onClicked: root.openEmojiPicker()
           }
           Button {
             id: sendButton

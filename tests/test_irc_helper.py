@@ -115,8 +115,9 @@ class IpcTests(unittest.TestCase):
         asyncio.run(exercise())
 
     def test_json_events_support_unicode(self):
-        encoded = json.dumps({"event": "message", "text": "hello λ"}, ensure_ascii=False)
-        self.assertEqual(json.loads(encoded)["text"], "hello λ")
+        text = "hello λ 😮‍💨"
+        encoded = json.dumps({"event": "message", "text": text}, ensure_ascii=False)
+        self.assertEqual(json.loads(encoded)["text"], text)
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ page or browser UI.
 
 - Native bar icon, connection indicator, and unread count
 - Native QML timeline and single-line message composer
+- Unicode emoji display and native Omarchy emoji-picker input
 - Channel member selector populated from IRC `NAMES` replies
 - Direct-message conversations with individual channel members
 - Session-only mute and unmute controls for incoming user messages
@@ -49,6 +50,12 @@ messages for the current shell session. **Unmute** restores them. The
 conversation selector switches between `#omachee` and opened DMs. **Change**
 updates the nickname; **Leave** parts the channel and closes the network
 connection.
+
+Choose **Emoji** beside the composer to open Omarchy's searchable emoji overlay.
+Selecting an emoji inserts it into the focused composer without sending it;
+continue typing or press Enter to send. The standard `SUPER+CTRL+E` Omarchy
+shortcut opens the same picker. Received Unicode emoji use the system emoji font
+fallback, normally `Noto Color Emoji` on Omarchy.
 
 URLs remain plain text in the initial release. The panel does not automatically
 open, fetch, preview, or execute links or message content.
@@ -120,7 +127,7 @@ omarchy-shell io.github.gardnmi.omarchy-irc open
 ```
 
 The tests exercise IRC parsing, malformed input, Unicode, line limits, JSON IPC,
-nickname collisions, member-list parsing, and direct-message routing without
+nickname collisions, emoji Unicode, member-list parsing, and direct-message routing without
 connecting to Libera.Chat. A release smoke test should use disposable nicknames
 to verify connect, join, channel and direct sends, mute/unmute, part, reconnect,
 unread state, shell restart, responsive layout, and plugin removal.

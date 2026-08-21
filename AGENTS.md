@@ -16,6 +16,8 @@ The permanent plugin ID is `io.github.gardnmi.omarchy-irc`. Never change it.
 - Muting suppresses subsequent incoming messages locally; it is not an IRC ban
   and must not be presented as preventing network delivery.
 - Render all remote content with `Text.PlainText`; never evaluate it.
+- Preserve Unicode emoji end to end and use Omarchy's existing `omarchy.emojis`
+  overlay for input rather than bundling another picker or emoji dataset.
 - Keep the server fixed to `irc.libera.chat:6697` and channel fixed to `#omachee`.
 - Do not add passwords, SASL, telemetry, bots, bridges, or LLM processing.
 - Do not expose channel operator actions such as access changes, kick, or ban
