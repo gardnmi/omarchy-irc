@@ -8,6 +8,9 @@ page or browser UI.
 
 - Native bar icon, connection indicator, and unread count
 - Native QML timeline and single-line message composer
+- Channel member selector populated from IRC `NAMES` replies
+- Direct-message conversations with individual channel members
+- Session-only mute and unmute controls for incoming user messages
 - User-selected 1-16 character guest nickname with collision handling and in-panel changes
 - Verified TLS connection to `irc.libera.chat:6697`
 - Automatic PING/PONG and bounded exponential reconnect backoff
@@ -40,8 +43,12 @@ omarchy plugin enable io.github.gardnmi.omarchy-irc --section right
 ```
 
 Open the chat icon, choose a guest nickname, and select **Join**. Enter sends a
-message from the composer. **Change** updates the nickname; **Leave** parts the
-channel and closes the network connection.
+message from the composer. Select a channel member and choose **DM** to open a
+private conversation, or **Mute** to suppress that user's subsequent incoming
+messages for the current shell session. **Unmute** restores them. The
+conversation selector switches between `#omachee` and opened DMs. **Change**
+updates the nickname; **Leave** parts the channel and closes the network
+connection.
 
 URLs remain plain text in the initial release. The panel does not automatically
 open, fetch, preview, or execute links or message content.
@@ -57,7 +64,10 @@ The helper starts only after the panel is opened for the first time. It remains
 connected while Omarchy shell runs, including while the panel is closed. QML and
 the helper communicate through newline-delimited JSON on local process pipes.
 The plugin does not write chat history, nicknames, credentials, or connection
-state to disk. Restarting Omarchy shell discards the timeline.
+state to disk. Direct-message conversations and the muted-user set also remain
+only in QML memory. Restarting Omarchy shell discards all of them. Muting is a
+local presentation action: Libera still delivers the traffic, but the panel
+does not retain or display subsequent messages from that nickname.
 
 There are no account passwords, SASL credentials, analytics, telemetry, public
 logs, bots, bridges, embedded browsers, or LLM processing. Libera.Chat and other
@@ -70,20 +80,25 @@ Commands sent to the helper include:
 
 ```json
 {"command":"connect","nickname":"OmarchyUser42"}
-{"command":"send","text":"Hello from Omarchy"}
+{"command":"send","target":"#omachee","text":"Hello from Omarchy"}
+{"command":"send","target":"someone","text":"Hello privately"}
 ```
 
 Events returned to QML include:
 
 ```json
-{"event":"message","nick":"someone","text":"Welcome!"}
+{"event":"message","nick":"someone","target":"#omachee","text":"Welcome!"}
+{"event":"message","nick":"someone","target":"someone","text":"Private hello"}
+{"event":"names","channel":"#omachee","users":["someone","another-user"]}
 {"event":"connected","channel":"#omachee","network":"Libera.Chat"}
 {"event":"error","message":"Nickname already in use"}
 ```
 
-The helper handles the IRC messages needed for `JOIN`, `PRIVMSG`, `NOTICE`,
-`NICK`, `PART`, `QUIT`, `PING`, channel names, and connection numerics. Malformed
-IPC and IRC lines are rejected or ignored without evaluating their contents.
+The helper handles the IRC messages needed for `JOIN`, channel and direct
+`PRIVMSG`, `NOTICE`, `NICK`, `PART`, `QUIT`, `PING`, `NAMES`, channel names, and
+connection numerics. Direct-message targets must pass the same nickname
+validation as the local guest nickname. Malformed IPC and IRC lines are rejected
+or ignored without evaluating their contents.
 
 ## Update And Remove
 
@@ -105,8 +120,9 @@ omarchy-shell io.github.gardnmi.omarchy-irc open
 ```
 
 The tests exercise IRC parsing, malformed input, Unicode, line limits, JSON IPC,
-and nickname collisions without connecting to Libera.Chat. A release smoke test
-should use a disposable nickname to verify connect, join, send, part, reconnect,
+nickname collisions, member-list parsing, and direct-message routing without
+connecting to Libera.Chat. A release smoke test should use disposable nicknames
+to verify connect, join, channel and direct sends, mute/unmute, part, reconnect,
 unread state, shell restart, responsive layout, and plugin removal.
 
 ## License

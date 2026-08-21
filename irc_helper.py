@@ -70,6 +70,13 @@ def validate_nickname(value: Any) -> str:
     return nickname
 
 
+def validate_message_target(value: Any) -> str:
+    target = str(value or CHANNEL).strip()
+    if target.lower() == CHANNEL:
+        return CHANNEL
+    return validate_nickname(target)
+
+
 def decode_client_command(line: str) -> dict[str, Any]:
     try:
         payload = json.loads(line)
@@ -126,13 +133,14 @@ class IrcClient:
                 await self.queue_line(f"NICK {nickname}")
         elif command == "send":
             text = str(payload.get("text") or "")
+            target = validate_message_target(payload.get("target"))
             if not self.joined:
                 raise ValueError("Join #omachee before sending")
             if not text.strip():
                 raise ValueError("Message cannot be empty")
-            encode_irc(f"PRIVMSG {CHANNEL} :{text}")
-            await self.queue_line(f"PRIVMSG {CHANNEL} :{text}")
-            self.emit("message", nick=self.nickname, text=text, own=True)
+            encode_irc(f"PRIVMSG {target} :{text}")
+            await self.queue_line(f"PRIVMSG {target} :{text}")
+            self.emit("message", nick=self.nickname, target=target, text=text, own=True)
         elif command == "part":
             self.want_connection = False
             if self.writer is not None:
@@ -242,12 +250,16 @@ class IrcClient:
                 self.emit("connected", channel=CHANNEL, network="Libera.Chat", nickname=self.nickname)
             else:
                 self.emit("join", nick=source_nick, channel=channel)
-        elif command == "PRIVMSG" and len(params) >= 2 and params[0].lower() == CHANNEL:
+        elif command == "PRIVMSG" and len(params) >= 2:
+            destination = params[0]
+            if destination.lower() != CHANNEL and destination.lower() != self.nickname.lower():
+                return
+            target = CHANNEL if destination.lower() == CHANNEL else source_nick
             text = params[1]
             if text.startswith("\x01ACTION ") and text.endswith("\x01"):
-                self.emit("action", nick=source_nick, text=text[8:-1])
+                self.emit("action", nick=source_nick, target=target, text=text[8:-1], own=False)
             elif not text.startswith("\x01"):
-                self.emit("message", nick=source_nick, text=text, own=False)
+                self.emit("message", nick=source_nick, target=target, text=text, own=False)
         elif command == "NOTICE" and params:
             text = params[-1]
             if not text.startswith("\x01"):
@@ -259,6 +271,13 @@ class IrcClient:
                 self.emit("nickname", nickname=new_nick, message=f"You are now {new_nick}")
             else:
                 self.emit("nick", nick=source_nick, newNick=new_nick)
+        elif command == "353" and params:
+            names = []
+            for raw_name in params[-1].split():
+                name = raw_name.lstrip("~&@%+")
+                if name:
+                    names.append(name)
+            self.emit("names", channel=CHANNEL, users=names)
         elif command == "PART" and params:
             self.emit("part", nick=source_nick, channel=params[0])
         elif command == "QUIT":

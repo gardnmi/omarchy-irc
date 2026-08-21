@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.gardnmi.omarchy-irc",
   "name": "Omarchy IRC",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "author": "Mike Gardner",
   "license": "MIT",
   "description": "Join the Omarchy community on Libera.Chat from a native bar panel.",
@@ -13,7 +13,7 @@
   },
   "barWidget": {
     "displayName": "Omarchy IRC",
-    "description": "Chat in #omachee on Libera.Chat with an ephemeral guest nickname.",
+    "description": "Chat in #omachee, message users directly, and mute users for the session.",
     "category": "Communication",
     "aliases": ["irc", "chat", "libera", "omarchy", "community"],
     "allowMultiple": false,

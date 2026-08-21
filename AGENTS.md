@@ -12,9 +12,14 @@ The permanent plugin ID is `io.github.gardnmi.omarchy-irc`. Never change it.
 - IPC is newline-delimited JSON over the helper's stdin and stdout.
 - The helper starts on first panel open and remains alive with Omarchy shell.
 - Never persist messages, nicknames, credentials, or connection state.
+- Direct-message conversations and muted nicknames are QML session state only.
+- Muting suppresses subsequent incoming messages locally; it is not an IRC ban
+  and must not be presented as preventing network delivery.
 - Render all remote content with `Text.PlainText`; never evaluate it.
 - Keep the server fixed to `irc.libera.chat:6697` and channel fixed to `#omachee`.
 - Do not add passwords, SASL, telemetry, bots, bridges, or LLM processing.
+- Do not expose channel operator actions such as access changes, kick, or ban
+  without an explicit future requirement and confirmation design.
 - Preserve IRC line limits, flood throttling, PING/PONG, reconnect backoff, and
   nickname collision handling.
 

@@ -25,16 +25,75 @@ Panel {
   property bool helperStarted: false
   property bool joined: false
   property int sequence: 0
+  property string activeTarget: "#omachee"
+  property string selectedUser: ""
+  property var users: []
+  property var directTargets: []
+  property var mutedUsers: ({})
+  readonly property var conversationOptions: [{ value: "#omachee", label: "#omachee" }]
+    .concat(directTargets.map(function(target) { return { value: target, label: "DM · " + target } }))
+  readonly property var userOptions: users.filter(function(user) {
+    return user.toLowerCase() !== nickname.toLowerCase()
+  }).map(function(user) { return { value: user, label: user } })
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
-  function appendEvent(kind, nick, text) {
+  function appendEvent(kind, nick, text, target, own) {
+    var conversation = String(target || "#omachee")
+    if (!own && nick !== "" && isMuted(nick)) return
+    if (conversation !== "#omachee") addDirectTarget(conversation)
     timeline.append({ kind: String(kind), nick: String(nick || ""),
-      text: String(text || ""), stamp: Qt.formatTime(new Date(), "HH:mm"), sequence: sequence++ })
+      text: String(text || ""), target: conversation, own: !!own,
+      stamp: Qt.formatTime(new Date(), "HH:mm"), sequence: sequence++ })
     if (timeline.count > 500) timeline.remove(0, timeline.count - 500)
     if (!opened && (kind === "message" || kind === "action")) unreadCount++
     Qt.callLater(function() { messageList.positionViewAtEnd() })
+  }
+
+  function addDirectTarget(target) {
+    var value = String(target || "").trim()
+    if (value === "" || value === "#omachee" || directTargets.indexOf(value) >= 0) return
+    directTargets = directTargets.concat([value])
+  }
+
+  function openDirectMessage(target) {
+    var value = String(target || selectedUser || "").trim()
+    if (value === "" || value.toLowerCase() === nickname.toLowerCase()) return
+    addDirectTarget(value)
+    activeTarget = value
+    selectedUser = value
+    conversationDropdown.value = value
+    Qt.callLater(function() { composer.forceActiveFocus() })
+  }
+
+  function isMuted(user) {
+    return !!mutedUsers[String(user || "").toLowerCase()]
+  }
+
+  function toggleMute(user) {
+    var value = String(user || selectedUser || "").trim()
+    if (value === "" || value.toLowerCase() === nickname.toLowerCase()) return
+    var next = Object.assign({}, mutedUsers)
+    var key = value.toLowerCase()
+    if (next[key]) {
+      delete next[key]
+      statusMessage = "Unmuted " + value
+    } else {
+      next[key] = true
+      statusMessage = "Muted " + value + " for this session"
+    }
+    mutedUsers = next
+  }
+
+  function applyNames(nextUsers) {
+    var merged = users.slice()
+    for (var i = 0; i < nextUsers.length; i++) {
+      var user = String(nextUsers[i] || "")
+      if (user !== "" && merged.indexOf(user) < 0) merged.push(user)
+    }
+    users = merged.sort(function(a, b) { return a.toLowerCase().localeCompare(b.toLowerCase()) })
+    if (selectedUser === "" && userOptions.length > 0) selectedUser = userOptions[0].value
   }
 
   function sendCommand(payload) {
@@ -62,7 +121,7 @@ Panel {
   function sendMessage() {
     var text = composer.text
     if (!joined || text.trim() === "") return
-    sendCommand({ command: "send", text: text })
+    sendCommand({ command: "send", target: activeTarget, text: text })
     composer.text = ""
   }
 
@@ -84,7 +143,7 @@ Panel {
       nickname = String(event.nickname || nickname)
       nicknameField.text = nickname
       statusMessage = "Joined #omachee on Libera.Chat"
-      appendEvent("notice", "", "Connected as " + nickname)
+      appendEvent("notice", "", "Connected as " + nickname, "#omachee", false)
     } else if (event.event === "disconnected") {
       joined = false
       connectionState = "disconnected"
@@ -92,22 +151,33 @@ Panel {
     } else if (event.event === "nickname") {
       nickname = String(event.nickname || nickname)
       nicknameField.text = nickname
-      appendEvent("notice", "", String(event.message || "Nickname changed"))
+      appendEvent("notice", "", String(event.message || "Nickname changed"), "#omachee", false)
     } else if (event.event === "message" || event.event === "action") {
-      appendEvent(event.event, event.nick, event.text)
+      var target = String(event.target || "#omachee")
+      appendEvent(event.event, event.nick, event.text, target, !!event.own)
+      if (target !== "#omachee" && opened && !event.own) {
+        activeTarget = target
+        conversationDropdown.value = target
+      }
     } else if (event.event === "notice") {
-      appendEvent("notice", event.nick, event.text)
+      appendEvent("notice", event.nick, event.text, "#omachee", false)
+    } else if (event.event === "names") {
+      applyNames(Array.isArray(event.users) ? event.users : [])
     } else if (event.event === "join") {
-      appendEvent("notice", "", String(event.nick || "Someone") + " joined")
+      applyNames([event.nick])
+      appendEvent("notice", "", String(event.nick || "Someone") + " joined", "#omachee", false)
     } else if (event.event === "part") {
-      appendEvent("notice", "", String(event.nick || "Someone") + " left")
+      users = users.filter(function(user) { return user.toLowerCase() !== String(event.nick || "").toLowerCase() })
+      appendEvent("notice", "", String(event.nick || "Someone") + " left", "#omachee", false)
     } else if (event.event === "quit") {
-      appendEvent("notice", "", String(event.nick || "Someone") + " quit")
+      users = users.filter(function(user) { return user.toLowerCase() !== String(event.nick || "").toLowerCase() })
+      appendEvent("notice", "", String(event.nick || "Someone") + " quit", "#omachee", false)
     } else if (event.event === "nick") {
-      appendEvent("notice", "", String(event.nick || "Someone") + " is now " + String(event.newNick || ""))
+      users = users.map(function(user) { return user === event.nick ? String(event.newNick) : user })
+      appendEvent("notice", "", String(event.nick || "Someone") + " is now " + String(event.newNick || ""), "#omachee", false)
     } else if (event.event === "error") {
       statusMessage = String(event.message || "IRC error")
-      appendEvent("error", "", statusMessage)
+      appendEvent("error", "", statusMessage, activeTarget, false)
     }
   }
 
@@ -208,7 +278,8 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      blocked: nicknameField.activeFocus || composer.activeFocus
+      blocked: nicknameField.activeFocus || composer.activeFocus || directUserDropdown.popupOpen
+        || conversationDropdown.popupOpen
       onCloseRequested: root.close()
 
       Column {
@@ -250,6 +321,51 @@ Panel {
         Row {
           width: parent.width
           spacing: Style.space(6)
+          Dropdown {
+            id: conversationDropdown
+            width: parent.width * 0.45
+            showLabel: false
+            value: root.activeTarget
+            options: root.conversationOptions
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            onChanged: function(value) {
+              root.activeTarget = value
+              Qt.callLater(function() { composer.forceActiveFocus() })
+            }
+          }
+          Dropdown {
+            id: directUserDropdown
+            width: parent.width - conversationDropdown.width - directButton.width
+              - muteButton.width - parent.spacing * 3
+            showLabel: false
+            value: root.selectedUser
+            options: root.userOptions
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            onChanged: function(value) { root.selectedUser = value }
+          }
+          Button {
+            id: directButton
+            text: "DM"
+            bordered: true
+            enabled: root.selectedUser !== ""
+            foreground: root.foreground
+            onClicked: root.openDirectMessage(root.selectedUser)
+          }
+          Button {
+            id: muteButton
+            text: root.isMuted(root.selectedUser) ? "Unmute" : "Mute"
+            bordered: true
+            enabled: root.selectedUser !== ""
+            foreground: root.foreground
+            onClicked: root.toggleMute(root.selectedUser)
+          }
+        }
+
+        Row {
+          width: parent.width
+          spacing: Style.space(6)
           TextField {
             id: nicknameField
             width: parent.width - applyNickButton.width - parent.spacing
@@ -271,7 +387,7 @@ Panel {
 
         Rectangle {
           width: parent.width
-          height: Math.max(Style.space(300), parent.height - Style.space(172))
+          height: Math.max(Style.space(270), parent.height - Style.space(210))
           color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.035)
           border.width: Math.max(1, Style.spaceReal(1))
           border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.16)
@@ -292,9 +408,12 @@ Panel {
               required property string kind
               required property string nick
               required property string text
+              required property string target
+              required property bool own
               required property string stamp
+              visible: target === root.activeTarget
               width: messageList.width - Style.space(8)
-              height: messageText.implicitHeight
+              height: visible ? messageText.implicitHeight : 0
 
               Text {
                 id: messageText
@@ -330,7 +449,7 @@ Panel {
             id: composer
             width: parent.width - sendButton.width - parent.spacing
             enabled: root.joined
-            placeholderText: root.joined ? "Message #omachee" : "Connect to send a message"
+            placeholderText: root.joined ? "Message " + root.activeTarget : "Connect to send a message"
             foreground: root.foreground
             onAccepted: root.sendMessage()
           }

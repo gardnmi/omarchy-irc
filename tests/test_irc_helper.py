@@ -7,6 +7,7 @@ from irc_helper import (
     decode_client_command,
     encode_irc,
     parse_irc_line,
+    validate_message_target,
     validate_nickname,
 )
 
@@ -49,6 +50,49 @@ class IpcTests(unittest.TestCase):
         for nickname in ("", "42startsWrong", "has space", "x" * 17):
             with self.subTest(nickname=nickname), self.assertRaises(ValueError):
                 validate_nickname(nickname)
+
+    def test_validates_message_target(self):
+        self.assertEqual(validate_message_target("#omachee"), "#omachee")
+        self.assertEqual(validate_message_target("someone"), "someone")
+        with self.assertRaises(ValueError):
+            validate_message_target("#other")
+
+    def test_direct_message_command_targets_selected_user(self):
+        async def exercise():
+            client = IrcClient()
+            client.joined = True
+            client.nickname = "Me"
+            output = []
+            client.emit = lambda event, **fields: output.append({"event": event, **fields})
+            await client.handle_command({"command": "send", "target": "someone", "text": "hello"})
+            self.assertEqual(client.outgoing.get_nowait(), "PRIVMSG someone :hello")
+            self.assertEqual(output[0]["target"], "someone")
+            self.assertTrue(output[0]["own"])
+
+        asyncio.run(exercise())
+
+    def test_incoming_direct_message_uses_sender_as_target(self):
+        async def exercise():
+            client = IrcClient()
+            client.nickname = "Me"
+            output = []
+            client.emit = lambda event, **fields: output.append({"event": event, **fields})
+            await client.handle_irc(parse_irc_line(":someone!u@h PRIVMSG Me :hello"))
+            self.assertEqual(output[0]["event"], "message")
+            self.assertEqual(output[0]["target"], "someone")
+            self.assertFalse(output[0]["own"])
+
+        asyncio.run(exercise())
+
+    def test_names_reply_removes_membership_prefixes(self):
+        async def exercise():
+            client = IrcClient()
+            output = []
+            client.emit = lambda event, **fields: output.append({"event": event, **fields})
+            await client.handle_irc(parse_irc_line(":server 353 Me = #omachee :@alice +bob Me"))
+            self.assertEqual(output[0]["users"], ["alice", "bob", "Me"])
+
+        asyncio.run(exercise())
 
     def test_collision_selects_variant_without_network(self):
         async def exercise():
