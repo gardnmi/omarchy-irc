@@ -4,6 +4,16 @@ Join `#omachee` on Libera.Chat from a native, Omarchy-themed bar panel. Omarchy
 IRC uses a bundled, standard-library-only Python helper and does not embed a web
 page or browser UI.
 
+## Preview
+
+### Native Chat
+
+![Omarchy IRC chat panel](preview.png)
+
+### Simple Guest Login
+
+![Omarchy IRC guest login](screenshots/login.png)
+
 ## Features
 
 - Native bar icon, connection indicator, and unread count

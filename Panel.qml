@@ -1035,10 +1035,10 @@ Panel {
                 width: parent.width
                 spacing: messageDelegate.actionsVisible ? Style.space(4) : 0
 
-                Row {
+                Column {
                   id: messageRow
                   width: parent.width
-                  spacing: messageDelegate.hasSender ? Style.space(5) : 0
+                  spacing: messageDelegate.hasSender ? Style.space(1) : 0
 
                   Button {
                     id: senderButton
@@ -1057,8 +1057,7 @@ Panel {
 
                   TextEdit {
                     id: messageText
-                    width: messageDelegate.hasSender
-                      ? messageRow.width - senderButton.width - messageRow.spacing : messageRow.width
+                    width: messageRow.width
                     text: root.displayText(messageDelegate.text)
                     textFormat: TextEdit.PlainText
                     readOnly: true
@@ -1072,6 +1071,8 @@ Panel {
                     font.pixelSize: messageDelegate.kind === "notice"
                       ? Style.font.caption : Style.font.body
                     wrapMode: TextEdit.Wrap
+                    leftPadding: messageDelegate.hasSender ? Style.space(2) : 0
+                    rightPadding: messageDelegate.hasSender ? Style.space(2) : 0
                     onActiveFocusChanged: root.messageTextFocused = activeFocus
                     Keys.onEscapePressed: function(event) {
                       deselect()
