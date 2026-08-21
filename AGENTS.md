@@ -39,9 +39,13 @@ The permanent plugin ID is `io.github.gardnmi.omarchy-irc`. Never change it.
   rendering. Keep compatibility substitutions bounded, display-only, and
   whitespace-delimited; never mutate protocol text or convert arbitrary prose.
 - Keep the server fixed to `irc.libera.chat:6697` and channel fixed to `#omachee`.
-- Do not add passwords, SASL, telemetry, bots, bridges, or LLM processing.
-- Do not expose channel operator actions such as access changes, kick, or ban
-  without an explicit future requirement and confirmation design.
+- NickServ credentials may be used only for SASL over verified TLS. Keep them
+  masked in the UI, session-only, out of logs, and out of files. Never join the
+  channel under an account identity until SASL succeeds.
+- Do not add telemetry, bots, bridges, or LLM processing.
+- Operator controls are limited to requesting/dropping `+o`, kick, and confirmed
+  ban-and-kick. Gate moderation on the server-reported `@` state in both QML and
+  the helper; never infer it from a nickname or expose arbitrary mode commands.
 - Preserve IRC line limits, flood throttling, PING/PONG, reconnect backoff, and
   nickname collision handling.
 

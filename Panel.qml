@@ -18,15 +18,18 @@ Panel {
   readonly property int barSize: bar ? bar.barSize : Style.bar.sizeHorizontal
   readonly property int maxTimelineEntries: Math.max(100,
     Number(setting("maxTimelineEntries", 500)))
+  readonly property int maxDirectTargets: 100
   readonly property string helperPath: decodeURIComponent(String(Qt.resolvedUrl("irc_helper.py")))
     .replace(/^file:\/\//, "")
   property string connectionState: "disconnected"
   property string statusMessage: "Choose a guest nickname to join"
   property string nickname: ""
+  property string account: ""
   property int unreadCount: 0
   property bool helperStarted: false
   property bool joined: false
   property bool nicknameEditorOpen: false
+  property bool nickServLoginOpen: false
   property int sequence: 0
   property string activeTab: "chat"
   property string activeTarget: "#omachee"
@@ -35,12 +38,17 @@ Panel {
   property string userQuery: ""
   property var users: []
   property var knownUsers: ({})
+  property var operators: ({})
   property var directTargets: []
   property var mutedUsers: ({})
   property int actionSequence: -1
   property bool messageTextFocused: false
   property int commandSuggestionIndex: 0
   property bool commandSuggestionsDismissed: false
+  property bool moderationConfirmOpen: false
+  property string moderationAction: ""
+  property string moderationTarget: ""
+  readonly property bool currentUserOperator: isOperator(nickname)
   readonly property var kiwiEmoticons: ({
     ":)": "🙂", ":-)": "🙂", "=)": "🙂", ":]": "🙂",
     ":D": "😃", ":-D": "😃", "=D": "😃", "XD": "😆",
@@ -152,6 +160,7 @@ Panel {
     if (value === "" || nickKey(value) === nickKey("#omachee")) return
     for (var i = 0; i < directTargets.length; i++)
       if (nickKey(directTargets[i]) === nickKey(value)) return
+    if (directTargets.length >= maxDirectTargets) return
     directTargets = directTargets.concat([value])
   }
 
@@ -184,6 +193,46 @@ Panel {
 
   function isMuted(user) {
     return !!mutedUsers[nickKey(user)]
+  }
+
+  function isOperator(user) {
+    return !!operators[nickKey(user)]
+  }
+
+  function setOperator(user, enabled) {
+    var next = Object.assign({}, operators)
+    var key = nickKey(user)
+    if (enabled) next[key] = true
+    else delete next[key]
+    operators = next
+  }
+
+  function requestModeration(action, user) {
+    if (!currentUserOperator) return
+    moderationAction = action
+    moderationTarget = canonicalNickname(user)
+    moderationConfirmOpen = true
+    moderationConfirm.selectedIndex = 0
+    actionSequence = -1
+    keyCatcher.forceActiveFocus()
+  }
+
+  function confirmModeration() {
+    var action = moderationAction
+    var target = moderationTarget
+    moderationConfirmOpen = false
+    moderationAction = ""
+    moderationTarget = ""
+    if (action === "kick") sendCommand({ command: "kick", nickname: target,
+      reason: "Removed by a channel operator" })
+    else if (action === "ban") sendCommand({ command: "ban", nickname: target,
+      reason: "Banned by a channel operator" })
+  }
+
+  function cancelModeration() {
+    moderationConfirmOpen = false
+    moderationAction = ""
+    moderationTarget = ""
   }
 
   function toggleMute(user) {
@@ -240,6 +289,7 @@ Panel {
     var nextKnown = Object.assign({}, knownUsers)
     delete nextKnown[key]
     knownUsers = nextKnown
+    setOperator(user, false)
   }
 
   function sendCommand(payload) {
@@ -260,7 +310,13 @@ Panel {
       nicknameField.forceActiveFocus()
       return
     }
-    sendCommand({ command: joined ? "nickname" : "connect", nickname: value })
+    if (joined) {
+      sendCommand({ command: "nickname", nickname: value })
+    } else {
+      var password = nickServLoginOpen ? passwordField.text : ""
+      sendCommand({ command: "connect", nickname: value, account: value, password: password })
+      passwordField.text = ""
+    }
   }
 
   function sendMessage() {
@@ -397,13 +453,18 @@ Panel {
     } else if (event.event === "connected") {
       joined = true
       nicknameEditorOpen = false
+      nickServLoginOpen = false
       connectionState = "connected"
       nickname = String(event.nickname || nickname)
+      account = String(event.account || "")
       nicknameField.text = nickname
-      statusMessage = "Joined #omachee on Libera.Chat"
+      statusMessage = account === "" ? "Joined #omachee on Libera.Chat"
+        : "Identified as " + account + "; joined #omachee"
       appendEvent("notice", "", "Connected as " + nickname, "#omachee", false)
     } else if (event.event === "disconnected") {
       joined = false
+      account = ""
+      operators = ({})
       nicknameEditorOpen = false
       connectionState = "disconnected"
       statusMessage = String(event.message || "Disconnected")
@@ -427,6 +488,11 @@ Panel {
       appendEvent("notice", event.nick, event.text, "#omachee", false)
     } else if (event.event === "names") {
       replaceNames(Array.isArray(event.users) ? event.users : [])
+      operators = ({})
+      var nextOperators = Array.isArray(event.operators) ? event.operators : []
+      for (var i = 0; i < nextOperators.length; i++) setOperator(nextOperators[i], true)
+    } else if (event.event === "operator") {
+      setOperator(event.nick, !!event.operator)
     } else if (event.event === "join") {
       applyNames([event.nick])
       appendEvent("notice", "", String(event.nick || "Someone") + " joined", "#omachee", false)
@@ -436,6 +502,16 @@ Panel {
     } else if (event.event === "quit") {
       removeUser(event.nick)
       appendEvent("notice", "", String(event.nick || "Someone") + " quit", "#omachee", false)
+    } else if (event.event === "kick") {
+      removeUser(event.nick)
+      if (event.own) {
+        joined = false
+        operators = ({})
+        statusMessage = "Kicked from #omachee by " + String(event.by || "an operator")
+      }
+      appendEvent("notice", "", String(event.nick || "Someone") + " was kicked by "
+        + String(event.by || "an operator") + (event.reason ? ": " + event.reason : ""),
+        "#omachee", false)
     } else if (event.event === "nick") {
       removeUser(event.nick)
       applyNames([event.newNick])
@@ -548,9 +624,22 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      blocked: nicknameField.activeFocus || composer.activeFocus || userSearchField.activeFocus
-        || conversationDropdown.popupOpen || root.messageTextFocused
-      onCloseRequested: root.close()
+      blocked: !root.moderationConfirmOpen && (nicknameField.activeFocus
+        || passwordField.activeFocus || composer.activeFocus || userSearchField.activeFocus
+        || conversationDropdown.popupOpen || root.messageTextFocused)
+      onCloseRequested: root.moderationConfirmOpen ? root.cancelModeration() : root.close()
+      onMoveRequested: function(dx, _dy) {
+        if (root.moderationConfirmOpen && dx !== 0)
+          moderationConfirm.selectedIndex = moderationConfirm.selectedIndex === 0 ? 1 : 0
+      }
+      onTabRequested: function(_direction) {
+        if (root.moderationConfirmOpen)
+          moderationConfirm.selectedIndex = moderationConfirm.selectedIndex === 0 ? 1 : 0
+      }
+      onActivateRequested: if (root.moderationConfirmOpen) {
+        if (moderationConfirm.selectedIndex === 0) root.cancelModeration()
+        else root.confirmModeration()
+      }
 
       Column {
         anchors.fill: parent
@@ -656,20 +745,44 @@ Panel {
           id: nicknameRow
           visible: !root.joined || root.nicknameEditorOpen
           width: parent.width
+          height: Style.space(40)
           spacing: Style.space(6)
           TextField {
             id: nicknameField
+            height: parent.height
             width: parent.width - applyNickButton.width
+              - (nickServModeButton.visible ? nickServModeButton.width + parent.spacing : 0)
               - (cancelNickButton.visible ? cancelNickButton.width + parent.spacing : 0)
               - parent.spacing
             text: root.nickname
-            placeholderText: "Guest nickname"
+            placeholderText: root.nickServLoginOpen ? "NickServ account" : "Guest nickname"
             maximumLength: 16
             foreground: root.foreground
             onAccepted: root.connectWithNickname()
           }
           Button {
+            id: nickServModeButton
+            visible: !root.joined
+            height: parent.height
+            text: ""
+            iconText: ""
+            bordered: true
+            selected: root.nickServLoginOpen
+            foreground: root.foreground
+            tooltipText: root.nickServLoginOpen ? "Use a guest nickname"
+              : "Use a registered NickServ account"
+            onClicked: {
+              root.nickServLoginOpen = !root.nickServLoginOpen
+              passwordField.text = ""
+              Qt.callLater(function() {
+                if (root.nickServLoginOpen) passwordField.forceActiveFocus()
+                else nicknameField.forceActiveFocus()
+              })
+            }
+          }
+          Button {
             id: applyNickButton
+            height: parent.height
             text: root.joined ? "Apply" : "Join"
             bordered: true
             active: !root.joined
@@ -679,6 +792,7 @@ Panel {
           Button {
             id: cancelNickButton
             visible: root.joined
+            height: parent.height
             text: "Cancel"
             bordered: true
             foreground: root.foreground
@@ -687,6 +801,20 @@ Panel {
               nicknameField.text = root.nickname
               keyCatcher.forceActiveFocus()
             }
+          }
+        }
+
+        Row {
+          id: nickServRow
+          visible: !root.joined && root.nickServLoginOpen
+          width: parent.width
+          TextField {
+            id: passwordField
+            width: parent.width
+            placeholderText: "NickServ password (session only)"
+            password: true
+            foreground: root.foreground
+            onAccepted: root.connectWithNickname()
           }
         }
 
@@ -734,7 +862,8 @@ Panel {
           visible: root.activeTab === "users"
           width: parent.width
           height: Math.max(Style.space(270), parent.height - Style.space(166)
-            - (nicknameRow.visible ? nicknameRow.height + Style.space(9) : 0))
+            - (nicknameRow.visible ? nicknameRow.height + Style.space(9) : 0)
+            - (nickServRow.visible ? nickServRow.height + Style.space(9) : 0))
           color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.035)
           border.width: Math.max(1, Style.spaceReal(1))
           border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.16)
@@ -754,43 +883,95 @@ Panel {
             delegate: Rectangle {
               required property var modelData
               width: userList.width - Style.space(8)
-              height: Style.space(38)
+              height: root.currentUserOperator ? Style.space(72) : Style.space(38)
               color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.035)
               radius: Style.cornerRadius
 
-              Text {
+              Item {
+                id: primaryUserRow
+                width: parent.width
+                height: Style.space(38)
+
+                Text {
+                  anchors.left: parent.left
+                  anchors.right: root.currentUserOperator ? parent.right : userDmButton.left
+                  anchors.verticalCenter: parent.verticalCenter
+                  anchors.leftMargin: Style.space(8)
+                  anchors.rightMargin: Style.space(8)
+                  text: (root.isOperator(modelData.value) ? "@" : "") + modelData.label
+                  textFormat: Text.PlainText
+                  color: root.isMuted(modelData.value) ? root.dim : root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  elide: Text.ElideRight
+                }
+                Button {
+                  id: userDmButton
+                  visible: !root.currentUserOperator
+                  anchors.right: userMuteButton.left
+                  anchors.verticalCenter: parent.verticalCenter
+                  anchors.rightMargin: Style.space(5)
+                  text: "DM"
+                  iconText: ""
+                  bordered: true
+                  foreground: root.foreground
+                  onClicked: root.openDirectMessage(modelData.value)
+                }
+                Button {
+                  id: userMuteButton
+                  visible: !root.currentUserOperator
+                  anchors.right: parent.right
+                  anchors.verticalCenter: parent.verticalCenter
+                  anchors.rightMargin: Style.space(5)
+                  text: root.isMuted(modelData.value) ? "Unmute" : "Mute"
+                  bordered: true
+                  foreground: root.foreground
+                  onClicked: root.toggleMute(modelData.value)
+                }
+              }
+              Row {
+                id: moderationActions
+                readonly property int actionWidth: Math.floor(
+                  (width - spacing * 3) / 4)
+                visible: root.currentUserOperator
                 anchors.left: parent.left
-                anchors.right: userDmButton.left
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.leftMargin: Style.space(8)
-                anchors.rightMargin: Style.space(6)
-                text: modelData.label
-                textFormat: Text.PlainText
-                color: root.isMuted(modelData.value) ? root.dim : root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.body
-                elide: Text.ElideRight
-              }
-              Button {
-                id: userDmButton
-                anchors.right: userMuteButton.left
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.rightMargin: Style.space(5)
-                text: "DM"
-                iconText: ""
-                bordered: true
-                foreground: root.foreground
-                onClicked: root.openDirectMessage(modelData.value)
-              }
-              Button {
-                id: userMuteButton
                 anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: parent.bottom
+                anchors.leftMargin: Style.space(5)
                 anchors.rightMargin: Style.space(5)
-                text: root.isMuted(modelData.value) ? "Unmute" : "Mute"
-                bordered: true
-                foreground: root.foreground
-                onClicked: root.toggleMute(modelData.value)
+                anchors.bottomMargin: Style.space(5)
+                spacing: Style.space(5)
+
+                Button {
+                  width: moderationActions.actionWidth
+                  text: "DM"
+                  bordered: true
+                  foreground: root.foreground
+                  onClicked: root.openDirectMessage(modelData.value)
+                }
+                Button {
+                  width: moderationActions.actionWidth
+                  text: root.isMuted(modelData.value) ? "Unmute" : "Mute"
+                  bordered: true
+                  foreground: root.foreground
+                  onClicked: root.toggleMute(modelData.value)
+                }
+                Button {
+                  width: moderationActions.actionWidth
+                  text: "Kick"
+                  bordered: true
+                  foreground: root.foreground
+                  onClicked: root.requestModeration("kick", modelData.value)
+                }
+                Button {
+                  width: moderationActions.actionWidth
+                  text: "Ban"
+                  bordered: true
+                  foreground: root.urgent
+                  tooltipText: "Ban and remove from #omachee"
+                  onClicked: root.requestModeration("ban", modelData.value)
+                }
               }
             }
 
@@ -815,6 +996,7 @@ Panel {
           height: Math.max(Style.space(190), parent.height
             - Style.space(root.activeTab === "dms" && root.directTargets.length > 0 ? 171 : 136)
             - (nicknameRow.visible ? nicknameRow.height + Style.space(9) : 0)
+            - (nickServRow.visible ? nickServRow.height + Style.space(9) : 0)
             - Math.max(0, composerRow.height - Style.space(34)))
           color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.035)
           border.width: Math.max(1, Style.spaceReal(1))
@@ -1118,6 +1300,22 @@ Panel {
           }
         }
 
+      }
+
+      ConfirmDialog {
+        id: moderationConfirm
+        anchors.fill: parent
+        opened: root.moderationConfirmOpen
+        z: 20
+        message: root.moderationAction === "ban"
+          ? "Ban " + root.moderationTarget + " and remove them from #omachee?\n\nReason: Banned by a channel operator"
+          : "Remove " + root.moderationTarget + " from #omachee?\n\nReason: Removed by a channel operator"
+        confirmText: root.moderationAction === "ban" ? "Ban" : "Kick"
+        background: Color.popups.background
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onCanceled: root.cancelModeration()
+        onConfirmed: root.confirmModeration()
       }
     }
   }

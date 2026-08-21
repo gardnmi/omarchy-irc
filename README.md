@@ -17,13 +17,14 @@ page or browser UI.
 - Channel member selector populated from IRC `NAMES` replies
 - Direct-message conversations with individual channel members
 - Session-only mute and unmute controls for incoming user messages
-- User-selected 1-16 character guest nickname with collision and registered-name fallback
+- Guest nicknames and optional session-only NickServ login with SASL PLAIN
 - Verified TLS connection to `irc.libera.chat:6697`
 - Automatic PING/PONG and bounded exponential reconnect backoff
 - Session-only messages that disappear when Omarchy shell restarts
 - Plain-text rendering for messages and notices
 - Outgoing IRC line-limit checks and one-message-per-second throttling
 - Compact join, part, quit, nickname, and connection notices
+- Server-authorized operator controls with confirmed kick and ban actions
 - `/me` actions rendered as plain text; other CTCP commands ignored
 
 ## Requirements
@@ -48,17 +49,29 @@ If needed, enable it later:
 omarchy plugin enable io.github.gardnmi.omarchy-irc --section right
 ```
 
-Open the chat icon, choose a guest nickname, and select **Join**. **Chat** is the
+Open the chat icon, choose a guest nickname, and select **Join**. The default
+form does not ask new users about IRC accounts. Experienced users can select the
+key icon beside **Join** to reveal a masked password field and identify with a
+registered Libera.Chat account such as `gardnmi`; selecting it again returns to
+the simple guest flow. **Chat** is the
 fixed `#omachee` channel with no channel dropdown. **Users** contains a searchable
 virtualized roster with DM and mute actions. It keeps all known nicknames as
 lightweight strings but renders at most 250 matching rows at once, so channels
 with thousands of users remain responsive. **DMs** contains private
 conversations and uses a selector for the available private conversations.
 
-The guest nickname form is shown only until the channel is joined. Afterward,
+The login form is shown only until the channel is joined. Afterward,
 the active nickname appears as a clickable header control; select it to reveal a
 compact Apply/Cancel nickname editor. `/nick newname` remains available from the
 composer.
+
+After an authenticated account joins, the helper automatically asks ChanServ for
+temporary operator status. ChanServ grants it only when that account has channel
+access. While the server reports `@` for the current nickname, the Users tab
+displays **Kick** and **Ban + kick** actions. Both require confirmation; ban first
+checks WHOIS and uses a NickServ account mask when available, otherwise it falls
+back to a nickname mask. The helper independently checks the live `@` state and
+does not expose arbitrary IRC mode commands.
 
 Enter sends from the composer. `Shift+Enter` or `Ctrl+Enter` inserts a newline.
 Because IRC framing cannot contain CR/LF, the plugin encodes composer breaks as
@@ -125,26 +138,34 @@ only in QML memory. Restarting Omarchy shell discards all of them. Muting is a
 local presentation action: Libera still delivers the traffic, but the panel
 does not retain or display subsequent messages from that nickname.
 
+The session keeps at most 100 distinct DM conversation targets so unsolicited
+messages from rotating nicknames cannot grow the dropdown without bound.
+
 The timeline retains the newest 500 total channel messages, DM messages, and
 connection/user notices by default. The optional `maxTimelineEntries` plugin
 setting changes this session-memory cap, with a minimum of 100 entries. The cap
 is global across all conversations rather than 500 entries per DM.
 
-There are no account passwords, SASL credentials, analytics, telemetry, public
-logs, bots, bridges, embedded browsers, or LLM processing. Libera.Chat and other
-channel participants receive normal IRC traffic; consult Libera.Chat's policies
-before use.
+NickServ passwords are accepted only through the masked login field, sent to the
+helper over its local stdin pipe, and used for SASL PLAIN inside the verified TLS
+connection. They remain in process memory only while needed for reconnects and
+are cleared when leaving or when authentication fails. Authentication must
+succeed before the helper joins `#omachee`; it never silently falls back to a
+guest after an authentication failure. If another IRC client already holds the
+requested registered nickname, account login stops with instructions to
+disconnect that client instead of joining under a suffix. When no password is
+supplied, registered nickname notices still trigger a random guest suffix.
 
-If Libera reports that a requested nickname is registered and requires account
-identification, the helper selects a random guest suffix instead of requesting
-or transmitting a NickServ password.
+There are no analytics, telemetry, public logs, bots, bridges, embedded browsers,
+or LLM processing. Libera.Chat and other channel participants receive normal IRC
+traffic; consult Libera.Chat's policies before use.
 
 ## Protocol Boundary
 
 Commands sent to the helper include:
 
 ```json
-{"command":"connect","nickname":"OmarchyUser42"}
+{"command":"connect","nickname":"gardnmi","account":"gardnmi","password":"<session-only>"}
 {"command":"send","target":"#omachee","text":"Hello from Omarchy"}
 {"command":"send","target":"someone","text":"Hello privately"}
 ```
@@ -159,11 +180,11 @@ Events returned to QML include:
 {"event":"error","message":"Nickname already in use"}
 ```
 
-The helper handles the IRC messages needed for `JOIN`, channel and direct
-`PRIVMSG`, `NOTICE`, `NICK`, `PART`, `QUIT`, `PING`, `NAMES`, channel names, and
-connection numerics. Direct-message targets must pass the same nickname
-validation as the local guest nickname. Malformed IPC and IRC lines are rejected
-or ignored without evaluating their contents.
+The helper handles SASL PLAIN capability negotiation and the IRC messages needed
+for `JOIN`, channel and direct `PRIVMSG`, `NOTICE`, `NICK`, `PART`, `QUIT`,
+`PING`, `NAMES`, channel names, and connection numerics. Direct-message targets
+must pass the same nickname validation as the local guest nickname. Malformed
+IPC and IRC lines are rejected or ignored without evaluating their contents.
 
 ## Update And Remove
 
@@ -185,7 +206,8 @@ omarchy-shell io.github.gardnmi.omarchy-irc open
 ```
 
 The tests exercise IRC parsing, malformed input, Unicode, line limits, JSON IPC,
-nickname collisions, emoji Unicode, member-list parsing, and direct-message routing without
+nickname collisions, SASL negotiation, operator authorization, account-aware
+bans, emoji Unicode, member-list parsing, and direct-message routing without
 connecting to Libera.Chat. A release smoke test should use disposable nicknames
 to verify connect, join, channel and direct sends, mute/unmute, part, reconnect,
 unread state, shell restart, responsive layout, and plugin removal.
