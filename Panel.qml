@@ -860,24 +860,13 @@ Panel {
             && root.activeTarget !== ""
           width: parent.width
           spacing: Style.space(6)
-          QQC.TextArea {
-            id: composer
+          QQC.ScrollView {
+            id: composerScroll
             width: parent.width - emojiButton.width - sendButton.width - parent.spacing * 2
             height: Math.min(Style.space(78), Math.max(Style.space(34),
-              contentHeight + topPadding + bottomPadding))
-            enabled: root.joined
-            placeholderText: root.joined ? "Message " + root.activeTarget : "Connect to send a message"
-            color: root.foreground
-            placeholderTextColor: root.dim
-            selectionColor: Color.accent
-            selectedTextColor: Color.background
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.body
-            wrapMode: TextEdit.Wrap
-            leftPadding: Style.space(8)
-            rightPadding: Style.space(8)
-            topPadding: Style.space(6)
-            bottomPadding: Style.space(6)
+              composer.contentHeight + composer.topPadding + composer.bottomPadding))
+            clip: true
+            QQC.ScrollBar.vertical.policy: QQC.ScrollBar.AsNeeded
             background: Rectangle {
               color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b,
                 composer.activeFocus ? 0.08 : 0.035)
@@ -886,11 +875,33 @@ Panel {
                 : Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.2)
               radius: Style.cornerRadius
             }
-            Keys.onPressed: function(event) {
-              if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
-                  && !(event.modifiers & (Qt.ShiftModifier | Qt.ControlModifier))) {
-                root.sendMessage()
-                event.accepted = true
+
+            QQC.TextArea {
+              id: composer
+              width: composerScroll.availableWidth
+              height: Math.max(composerScroll.availableHeight,
+                contentHeight + topPadding + bottomPadding)
+              enabled: root.joined
+              placeholderText: root.joined ? "Message " + root.activeTarget
+                : "Connect to send a message"
+              color: root.foreground
+              placeholderTextColor: root.dim
+              selectionColor: Color.accent
+              selectedTextColor: Color.background
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              wrapMode: TextEdit.Wrap
+              leftPadding: Style.space(8)
+              rightPadding: Style.space(8)
+              topPadding: Style.space(6)
+              bottomPadding: Style.space(6)
+              background: null
+              Keys.onPressed: function(event) {
+                if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
+                    && !(event.modifiers & (Qt.ShiftModifier | Qt.ControlModifier))) {
+                  root.sendMessage()
+                  event.accepted = true
+                }
               }
             }
           }
