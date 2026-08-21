@@ -1044,10 +1044,11 @@ Panel {
                     id: senderButton
                     visible: messageDelegate.hasSender
                     enabled: root.nickKey(messageDelegate.nick) !== root.nickKey(root.nickname)
-                    text: (messageDelegate.kind === "action" ? "* " : "") + messageDelegate.nick
+                    text: (messageDelegate.kind === "action" ? "* " : "")
+                      + messageDelegate.nick + ":"
                     bordered: false
                     active: messageDelegate.actionsVisible
-                    foreground: root.foreground
+                    foreground: Color.accent
                     fontFamily: root.fontFamily
                     horizontalPadding: Style.space(2)
                     verticalPadding: 0
