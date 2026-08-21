@@ -8,6 +8,8 @@ page or browser UI.
 
 - Native bar icon, connection indicator, and unread count
 - Native QML timeline and single-line message composer
+- Mouse-selectable message text with standard `Ctrl+C` copying
+- Clickable sender names with contextual DM and mute actions
 - Unicode emoji display and native Omarchy emoji-picker input
 - Channel member selector populated from IRC `NAMES` replies
 - Direct-message conversations with individual channel members
@@ -50,6 +52,11 @@ messages for the current shell session. **Unmute** restores them. The
 conversation selector switches between `#omachee` and opened DMs. **Change**
 updates the nickname; **Leave** parts the channel and closes the network
 connection.
+
+Drag across any message body to select plain text, then press `Ctrl+C` to copy
+the selection. Click another user's nickname in the timeline to reveal **DM**
+and **Mute/Unmute** actions directly beneath that message. Clicking the name
+again dismisses the actions.
 
 Choose **Emoji** beside the composer to open Omarchy's searchable emoji overlay.
 Selecting an emoji inserts it into the focused composer without sending it;

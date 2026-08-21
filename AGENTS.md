@@ -16,6 +16,9 @@ The permanent plugin ID is `io.github.gardnmi.omarchy-irc`. Never change it.
 - Muting suppresses subsequent incoming messages locally; it is not an IRC ban
   and must not be presented as preventing network delivery.
 - Render all remote content with `Text.PlainText`; never evaluate it.
+- Message bodies are read-only plain-text editors so users can select and copy
+  text. Sender names are separate controls that reveal scoped DM and mute
+  actions; never make remote message text itself executable.
 - Preserve Unicode emoji end to end and use Omarchy's existing `omarchy.emojis`
   overlay for input rather than bundling another picker or emoji dataset.
 - Kiwi IRC sends ASCII emoticon tokens and substitutes emoji only while

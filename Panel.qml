@@ -30,6 +30,8 @@ Panel {
   property var users: []
   property var directTargets: []
   property var mutedUsers: ({})
+  property int actionSequence: -1
+  property bool messageTextFocused: false
   readonly property var kiwiEmoticons: ({
     ":)": "🙂", ":-)": "🙂", "=)": "🙂", ":]": "🙂",
     ":D": "😃", ":-D": "😃", "=D": "😃", "XD": "😆",
@@ -102,6 +104,14 @@ Panel {
       statusMessage = "Muted " + value + " for this session"
     }
     mutedUsers = next
+  }
+
+  function selectMessageUser(sequence, user) {
+    var value = String(user || "")
+    if (value === "" || value.toLowerCase() === nickname.toLowerCase()) return
+    selectedUser = value
+    directUserDropdown.value = value
+    actionSequence = actionSequence === sequence ? -1 : sequence
   }
 
   function applyNames(nextUsers) {
@@ -305,7 +315,7 @@ Panel {
       id: keyCatcher
       anchors.fill: parent
       blocked: nicknameField.activeFocus || composer.activeFocus || directUserDropdown.popupOpen
-        || conversationDropdown.popupOpen
+        || conversationDropdown.popupOpen || root.messageTextFocused
       onCloseRequested: root.close()
 
       Column {
@@ -431,29 +441,107 @@ Panel {
             QQC.ScrollBar.vertical: QQC.ScrollBar { policy: QQC.ScrollBar.AsNeeded }
 
             delegate: Item {
+              id: messageDelegate
               required property string kind
               required property string nick
               required property string text
               required property string target
               required property bool own
               required property string stamp
+              required property int sequence
+              readonly property bool hasSender: (kind === "message" || kind === "action")
+                && nick !== ""
+              readonly property bool actionsVisible: sequence === root.actionSequence
+                && hasSender && nick.toLowerCase() !== root.nickname.toLowerCase()
               visible: target === root.activeTarget
               width: messageList.width - Style.space(8)
-              height: visible ? messageText.implicitHeight : 0
+              height: visible ? messageColumn.implicitHeight : 0
 
-              Text {
-                id: messageText
+              Column {
+                id: messageColumn
                 width: parent.width
-                text: parent.kind === "message"
-                  ? parent.nick + "  " + root.displayText(parent.text)
-                  : (parent.kind === "action" ? "* " + parent.nick + " "
-                    + root.displayText(parent.text) : root.displayText(parent.text))
-                textFormat: Text.PlainText
-                color: parent.kind === "error" ? root.urgent
-                  : (parent.kind === "notice" ? root.dim : root.foreground)
-                font.family: root.fontFamily
-                font.pixelSize: parent.kind === "notice" ? Style.font.caption : Style.font.body
-                wrapMode: Text.Wrap
+                spacing: messageDelegate.actionsVisible ? Style.space(4) : 0
+
+                Row {
+                  id: messageRow
+                  width: parent.width
+                  spacing: messageDelegate.hasSender ? Style.space(5) : 0
+
+                  Button {
+                    id: senderButton
+                    visible: messageDelegate.hasSender
+                    enabled: messageDelegate.nick.toLowerCase() !== root.nickname.toLowerCase()
+                    text: messageDelegate.nick
+                    bordered: false
+                    active: messageDelegate.actionsVisible
+                    foreground: root.foreground
+                    fontFamily: root.fontFamily
+                    horizontalPadding: Style.space(2)
+                    verticalPadding: 0
+                    onClicked: root.selectMessageUser(messageDelegate.sequence, messageDelegate.nick)
+                  }
+
+                  TextEdit {
+                    id: messageText
+                    width: messageDelegate.hasSender
+                      ? messageRow.width - senderButton.width - messageRow.spacing : messageRow.width
+                    text: messageDelegate.kind === "action"
+                      ? "* " + root.displayText(messageDelegate.text)
+                      : root.displayText(messageDelegate.text)
+                    textFormat: TextEdit.PlainText
+                    readOnly: true
+                    selectByMouse: true
+                    persistentSelection: true
+                    color: messageDelegate.kind === "error" ? root.urgent
+                      : (messageDelegate.kind === "notice" ? root.dim : root.foreground)
+                    selectedTextColor: Color.background
+                    selectionColor: Color.accent
+                    font.family: root.fontFamily
+                    font.pixelSize: messageDelegate.kind === "notice"
+                      ? Style.font.caption : Style.font.body
+                    wrapMode: TextEdit.Wrap
+                    onActiveFocusChanged: root.messageTextFocused = activeFocus
+                    Keys.onEscapePressed: function(event) {
+                      deselect()
+                      root.messageTextFocused = false
+                      keyCatcher.forceActiveFocus()
+                      event.accepted = true
+                    }
+                  }
+                }
+
+                Row {
+                  id: senderActions
+                  visible: messageDelegate.actionsVisible
+                  height: visible ? implicitHeight : 0
+                  spacing: Style.space(5)
+
+                  Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "Actions for " + messageDelegate.nick
+                    textFormat: Text.PlainText
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                  }
+                  Button {
+                    text: "DM"
+                    iconText: ""
+                    bordered: true
+                    foreground: root.foreground
+                    onClicked: {
+                      root.actionSequence = -1
+                      root.openDirectMessage(messageDelegate.nick)
+                    }
+                  }
+                  Button {
+                    text: root.isMuted(messageDelegate.nick) ? "Unmute" : "Mute"
+                    iconText: root.isMuted(messageDelegate.nick) ? "" : ""
+                    bordered: true
+                    foreground: root.foreground
+                    onClicked: root.toggleMute(messageDelegate.nick)
+                  }
+                }
               }
             }
 
